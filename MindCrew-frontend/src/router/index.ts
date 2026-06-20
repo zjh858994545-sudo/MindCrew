@@ -153,6 +153,13 @@ const router = createRouter({
           component: () => import('@/views/admin/RagEvalView.vue'),
           meta: { title: 'RAG 评测', icon: 'DataAnalysis', requiresAdmin: true }
         },
+        // Agent Trace · 问答链路可观测
+        {
+          path: 'agent-trace',
+          name: 'AgentTrace',
+          component: () => import('@/views/admin/AgentTraceView.vue'),
+          meta: { title: 'Agent Trace', icon: 'Share', requiresAdmin: true }
+        },
         // 历史对话搜索 · 任务 13.5
         {
           path: 'conv-search',

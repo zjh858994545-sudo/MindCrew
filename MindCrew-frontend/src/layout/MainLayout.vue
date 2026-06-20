@@ -186,6 +186,7 @@ const menuGroups: MenuGroup[] = [
       { path: '/feedback-review', label: '反馈审核',        icon: 'ChatLineSquare',    color: '#F59E0B', requiresAdmin: true, badge: 'NEW' },
       { path: '/golden-pair',     label: 'Golden Pair 库', icon: 'CircleCheckFilled', color: '#34D399', requiresAdmin: true, badge: 'NEW' },
       { path: '/rag-eval',        label: 'RAG 评测',       icon: 'DataAnalysis',       color: '#0EA5E9', requiresAdmin: true, badge: 'NEW' },
+      { path: '/agent-trace',     label: 'Agent Trace',    icon: 'Share',              color: '#6366F1', requiresAdmin: true, badge: 'NEW' },
       { path: '/conv-search',     label: '历史对话搜索',    icon: 'Search',            color: '#8B5CF6', badge: 'NEW' },
     ],
   },

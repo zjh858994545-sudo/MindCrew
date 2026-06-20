@@ -62,6 +62,9 @@ public class AgentState {
     /** 当前用户 ID（字符串，兼容 Long 和 UUID） */
     private String userId;
 
+    /** Agent Trace ID */
+    private String traceId;
+
     /** 关联会话 ID */
     private Long conversationId;
 

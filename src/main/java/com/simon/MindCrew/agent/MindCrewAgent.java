@@ -19,6 +19,8 @@ import com.simon.MindCrew.mcp.WebSearchTool;
 import com.simon.MindCrew.retrieval.ContextCompressor;
 import com.simon.MindCrew.service.knowledge.DocumentExtractor;
 import com.simon.MindCrew.service.knowledge.TextChunker;
+import com.simon.MindCrew.service.AgentTraceService;
+import com.simon.MindCrew.service.SafetyGuardService;
 import com.simon.MindCrew.service.rag.*;
 import com.simon.MindCrew.support.KbIdsParser;
 import lombok.RequiredArgsConstructor;
@@ -92,6 +94,8 @@ public class MindCrewAgent {
     private final com.simon.MindCrew.service.knowledge.VisionRecognizer visionRecognizer;
     private final com.simon.MindCrew.service.KbAclService kbAclService;
     private final com.simon.MindCrew.service.UsageStatsService usageStatsService;
+    private final AgentTraceService agentTraceService;
+    private final SafetyGuardService safetyGuardService;
 
     // MCP Tools
     private final DocSearchTool      docSearchTool;
@@ -161,6 +165,44 @@ public class MindCrewAgent {
         QaConversation conversation = getOrCreateConversation(userId, conversationId, question, kbIds);
         state.setConversationId(conversation.getId());
 
+        AgentTraceService.TraceRecord trace = agentTraceService.startTrace(
+                userId, conversation.getId(), question, getActiveModelName());
+        state.setTraceId(trace.traceId());
+        sendSseEvent(emitter, "trace", Map.of("traceId", state.getTraceId()));
+
+        long safetyT0 = System.currentTimeMillis();
+        SafetyGuardService.SafetyCheckResult inputSafety =
+                safetyGuardService.checkUserInput(question, state.getTraceId(), userId);
+        agentTraceService.recordSpan(state.getTraceId(), "SAFETY_CHECK", "user_input",
+                question, inputSafety.action(), System.currentTimeMillis() - safetyT0,
+                inputSafety.blocked() ? "BLOCK" : "OK", null);
+        if (inputSafety.blocked()) {
+            saveQaMessage(conversation.getId(), "user", question, null, null, null, null);
+            String safeAnswer = inputSafety.safeText();
+            saveQaMessage(conversation.getId(), "assistant", safeAnswer, null,
+                    JSON.toJSONString(state.getAgentTrace()), JSON.toJSONString(state.getMcpCalls()),
+                    JSON.toJSONString(state.getReflectionLog()));
+            updateConversation(conversation);
+            long elapsed = System.currentTimeMillis() - startTime;
+            agentTraceService.finishTrace(state.getTraceId(), safeAnswer, elapsed);
+            sendSseEvent(emitter, "safety", Map.of(
+                    "traceId", state.getTraceId(),
+                    "riskType", inputSafety.riskType(),
+                    "riskLevel", inputSafety.riskLevel(),
+                    "action", inputSafety.action(),
+                    "matchedRule", inputSafety.matchedRule()
+            ));
+            sendSseEvent(emitter, "token", Map.of("content", safeAnswer));
+            sendSseEvent(emitter, "done", Map.of(
+                    "conversationId", conversation.getId(),
+                    "traceId", state.getTraceId(),
+                    "safetyBlocked", true,
+                    "responseTime", elapsed
+            ));
+            emitter.complete();
+            return conversation.getId();
+        }
+
         // ②.0 处理图片输入（任务 10）· 走 VL 提取画面文字+描述，与 question 融合
         String effectiveQuery = question;
         String userMessageSources = null;
@@ -177,7 +219,7 @@ public class MindCrewAgent {
         //     人工校正过的标准答案优先返回，跳过完整 RAG，保证"已纠正过的问题永不再错"
         //     ⚠ 含图片的问题不走 Golden Pair（图片本身可能不同）
         if (imageObjectNames == null || imageObjectNames.isEmpty()) {
-            if (tryGoldenPairShortCircuit(question, conversation, emitter, startTime)) {
+            if (tryGoldenPairShortCircuit(question, conversation, emitter, startTime, state)) {
                 return conversation.getId();
             }
         }
@@ -231,6 +273,8 @@ public class MindCrewAgent {
         state.setRewrittenQuery(rewrittenQuery);
 
         updateTrace(state, 1, "改写完成：" + rewrittenQuery);
+        agentTraceService.recordSpan(state.getTraceId(), "QUERY_ANALYSIS", "query_rewrite",
+                question, rewrittenQuery, 0, "OK", null);
         sendSseEvent(emitter, "rewrite", Map.of(
                 "original", question,
                 "rewritten", rewrittenQuery
@@ -268,6 +312,8 @@ public class MindCrewAgent {
         }
 
         updateTrace(state, 3, "召回完成，共 " + allChunks.size() + " 条切片，工具：" + state.getSelectedTools());
+        agentTraceService.recordSpan(state.getTraceId(), "TOOL_CALL", "llm_tool_retrieval",
+                state.getSelectedTools(), "chunks=" + allChunks.size(), 0, "OK", null);
         sendSseEvent(emitter, "retrieval", Map.of(
                 "totalCount", allChunks.size(),
                 "tools", state.getSelectedTools(),
@@ -292,6 +338,10 @@ public class MindCrewAgent {
         List<RetrievedChunk> webPart = allChunks.stream()
                 .filter(c -> c.getSource() == RetrievedChunk.Source.WEB)
                 .collect(Collectors.toList());
+        agentTraceService.recordSpan(state.getTraceId(), "VECTOR_RETRIEVAL", "vector_results",
+                rewrittenQuery, "count=" + vectorPart.size(), 0, "OK", null);
+        agentTraceService.recordSpan(state.getTraceId(), "BM25_RETRIEVAL", "bm25_results",
+                rewrittenQuery, "count=" + bm25Part.size(), 0, "OK", null);
 
         List<RetrievedChunk> fused;
         List<RetrievedChunk> reranked;
@@ -303,6 +353,12 @@ public class MindCrewAgent {
             List<RetrievedChunk> rerankCandidates = mergeForRerank(fused, webPart);
             reranked = reranker.rerank(rewrittenQuery, rerankCandidates, rerankTopK);
         }
+        agentTraceService.recordSpan(state.getTraceId(), "RRF_FUSION", "rrf_fusion",
+                "vector=" + vectorPart.size() + ",bm25=" + bm25Part.size(),
+                "fused=" + fused.size(), 0, "OK", null);
+        agentTraceService.recordSpan(state.getTraceId(), "RERANK", "cross_encoder_rerank",
+                "candidates=" + (fused.size() + webPart.size()),
+                "reranked=" + reranked.size(), 0, "OK", null);
 
         // 补全文档名
         enrichSourceNames(reranked);
@@ -312,6 +368,9 @@ public class MindCrewAgent {
                 ? safeGetInt("rag.document_scope_max_tokens", 5000)
                 : safeGetInt("rag.context_max_tokens", 3000);
         List<RetrievedChunk> compressed = contextCompressor.compress(reranked, rewrittenQuery, maxTokens);
+        for (RetrievedChunk chunk : compressed) {
+            chunk.setContent(safetyGuardService.sanitizeRetrievedContent(chunk.getContent(), state.getTraceId(), state.getUserId()));
+        }
         state.setRetrievedChunks(compressed);
 
         updateTrace(state, 4, "重排序后 " + reranked.size() + " 条，压缩后 " + compressed.size() + " 条");
@@ -327,6 +386,8 @@ public class MindCrewAgent {
         String basePrompt = needsFallback
                 ? promptAssembler.assembleFallback(question, history)
                 : promptAssembler.assemble(question, compressed, state.getMemoryContext(), null, history);
+        agentTraceService.recordSpan(state.getTraceId(), "CONTEXT_BUILD", "prompt_context",
+                "chunks=" + compressed.size(), "fallback=" + needsFallback, 0, "OK", null);
 
         // 注入 Soul 人格（含反讨好底线）到 prompt 顶部
         String personaPrompt = personaService.buildDefaultSystemPrompt();
@@ -368,9 +429,15 @@ public class MindCrewAgent {
 
             if (isEmergency)    finalAnswer += safetyGuard.getEmergencyWarning();
             if (needsFallback)  finalAnswer += safetyGuard.getFallbackNotice();
+            SafetyGuardService.SafetyCheckResult outputSafety =
+                    safetyGuardService.checkFinalAnswer(finalAnswer, state.getTraceId(), state.getUserId());
+            finalAnswer = outputSafety.safeText();
 
             state.setFinalAnswer(finalAnswer);
             updateTrace(state, 6, "生成完成，长度=" + finalAnswer.length());
+            agentTraceService.recordSpan(state.getTraceId(), "LLM_GENERATION", "stream_generation",
+                    "promptLength=" + prompt.length(), "answerLength=" + finalAnswer.length(),
+                    System.currentTimeMillis() - startTime, "OK", null);
 
             // 写入缓存
             RagCachedResult cacheResult = new RagCachedResult(
@@ -409,13 +476,16 @@ public class MindCrewAgent {
             donePayload.put("conversationId", conversation.getId());
             donePayload.put("retrievalLog", retrievalLog);
             donePayload.put("agentTrace", state.getAgentTrace());
+            donePayload.put("traceId", state.getTraceId());
             donePayload.put("reflectionPassed", state.isReflectionPassed());
             donePayload.put("intentType", state.getIntentType());
             sendSseEvent(emitter, "done", donePayload);
             emitter.complete();
+            agentTraceService.finishTrace(state.getTraceId(), finalAnswer, elapsed);
 
         } catch (Exception error) {
             log.error("[MindCrewAgent] LLM生成失败", error);
+            agentTraceService.failTrace(state.getTraceId(), error.getMessage(), System.currentTimeMillis() - startTime);
             sendSseEvent(emitter, "error", Map.of("message", "生成失败：" + error.getMessage()));
             emitter.completeWithError(error);
         }
@@ -916,11 +986,16 @@ public class MindCrewAgent {
             donePayload.put("conversationId", conversation.getId());
             donePayload.put("fromCache", true);
             donePayload.put("retrievalLog", cached.getRetrievalLog());
+            donePayload.put("traceId", state.getTraceId());
             sendSseEvent(emitter, "done", donePayload);
+            agentTraceService.recordSpan(state.getTraceId(), "LLM_GENERATION", "cache_replay",
+                    "cacheHit=true", "answerLength=" + answer.length(), elapsed, "OK", null);
+            agentTraceService.finishTrace(state.getTraceId(), answer, elapsed);
 
             emitter.complete();
         } catch (Exception e) {
             log.error("[MindCrewAgent] 缓存回放失败", e);
+            agentTraceService.failTrace(state.getTraceId(), e.getMessage(), System.currentTimeMillis() - startTime);
             emitter.completeWithError(e);
         }
     }
@@ -1200,7 +1275,8 @@ public class MindCrewAgent {
     private boolean tryGoldenPairShortCircuit(String question,
                                               QaConversation conversation,
                                               SseEmitter emitter,
-                                              long startTime) {
+                                              long startTime,
+                                              AgentState state) {
         com.simon.MindCrew.service.QaGoldenPairService.HitOutcome hit;
         try {
             hit = goldenPairService.searchHit(question);
@@ -1212,6 +1288,8 @@ public class MindCrewAgent {
 
         com.simon.MindCrew.entity.QaGoldenPair pair = hit.pair();
         log.info("[MindCrewAgent] ✓ Golden Pair 命中 · pairId={} score={}", pair.getId(), hit.score());
+        agentTraceService.recordSpan(state.getTraceId(), "TOOL_CALL", "golden_pair_search",
+                question, "pairId=" + pair.getId() + ",score=" + hit.score(), 0, "OK", null);
 
         // 1) 发送 golden-hit 信号给前端
         sendSseEvent(emitter, "golden-hit", Map.of(
@@ -1250,12 +1328,14 @@ public class MindCrewAgent {
         long elapsed = System.currentTimeMillis() - startTime;
         sendSseEvent(emitter, "done", Map.of(
                 "conversationId", conversation.getId(),
+                "traceId", state.getTraceId(),
                 "elapsedMs", elapsed,
                 "fromGoldenPair", true,
                 "pairId", pair.getId(),
                 "score", hit.score(),
                 "sources", JSON.parseArray(sourcesJson)
         ));
+        agentTraceService.finishTrace(state.getTraceId(), answer, elapsed);
         emitter.complete();
         return true;
     }
