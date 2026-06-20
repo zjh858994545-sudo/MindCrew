@@ -40,7 +40,8 @@ public class QaFeedbackService {
      * 提交反馈。同一 message + user 允许覆盖（视为修改打分）。
      */
     @Transactional
-    public Long submit(Long messageId, Long userId, String rating, String comment, String correctionText) {
+    public Long submit(Long messageId, Long userId, String rating, String comment,
+                       String failureReason, String correctionText, String correctionSources) {
         if (messageId == null || userId == null || rating == null) {
             throw new IllegalArgumentException("messageId / userId / rating 必填");
         }
@@ -61,11 +62,15 @@ public class QaFeedbackService {
         if (existing != null) {
             existing.setRating(rating);
             existing.setComment(comment);
+            existing.setFailureReason(failureReason);
             if (correctionText != null && !correctionText.isBlank()) {
                 existing.setCorrectionText(correctionText);
                 if (STATUS_REJECTED.equals(existing.getStatus())) {
                     existing.setStatus(STATUS_PENDING);  // 用户再次纠正 → 重新待审
                 }
+            }
+            if (correctionSources != null && !correctionSources.isBlank()) {
+                existing.setCorrectionSources(correctionSources);
             }
             feedbackMapper.updateById(existing);
             log.info("[Feedback] 更新 id={} rating={} hasCorrection={}", existing.getId(), rating,
@@ -79,7 +84,9 @@ public class QaFeedbackService {
         fb.setUserId(userId);
         fb.setRating(rating);
         fb.setComment(comment);
+        fb.setFailureReason(failureReason);
         fb.setCorrectionText(correctionText);
+        fb.setCorrectionSources(correctionSources);
         fb.setStatus(STATUS_PENDING);
         feedbackMapper.insert(fb);
         log.info("[Feedback] 新建 id={} message={} rating={}", fb.getId(), messageId, rating);

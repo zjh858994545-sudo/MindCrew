@@ -419,6 +419,19 @@
         <el-icon size="14" color="#38bdf8"><EditPen /></el-icon>
         <span>你的修正会进入审核队列，审核通过后会自动作为该类问题的标准答案，实现"AI 越用越准"</span>
       </div>
+      <el-select
+        v-model="failureReason"
+        placeholder="选择失败原因"
+        class="correction-field"
+        style="width: 100%"
+      >
+        <el-option
+          v-for="item in failureReasons"
+          :key="item.value"
+          :label="item.label"
+          :value="item.value"
+        />
+      </el-select>
       <el-input
         v-model="correctionText"
         type="textarea"
@@ -426,6 +439,11 @@
         placeholder="请输入正确答案，或在 AI 答复的基础上修改"
         maxlength="5000"
         show-word-limit
+      />
+      <el-input
+        v-model="correctionSources"
+        class="correction-field"
+        placeholder="正确来源，可填文档名、页码、URL 或来源 JSON"
       />
       <template #footer>
         <el-button @click="correctionVisible = false">取消</el-button>
@@ -888,6 +906,10 @@ const copyContent = async (content: string) => {
 
 const submitFeedback = async (msg: any, rating: 'up' | 'down') => {
   if (!msg.id) return
+  if (rating === 'down') {
+    openCorrectionDialog(msg)
+    return
+  }
   try {
     await feedbackApi.submit({ messageId: msg.id, rating })
     msg.feedback = rating === 'up' ? 1 : -1
@@ -901,7 +923,18 @@ const submitFeedback = async (msg: any, rating: 'up' | 'down') => {
 const correctionVisible = ref(false)
 const correctionTarget  = ref<any>(null)
 const correctionText    = ref('')
+const correctionSources = ref('')
+const failureReason = ref('')
 const correctionSubmitting = ref(false)
+const failureReasons = [
+  { value: 'RETRIEVAL_MISS', label: '检索未命中' },
+  { value: 'RERANK_WRONG', label: '重排错误' },
+  { value: 'HALLUCINATION', label: '答案幻觉' },
+  { value: 'CITATION_WRONG', label: '引用错误' },
+  { value: 'ANSWER_INCOMPLETE', label: '答案不完整' },
+  { value: 'OUTDATED_INFO', label: '信息过时' },
+  { value: 'SECURITY_RISK', label: '安全风险' },
+]
 
 const openCorrectionDialog = (msg: any) => {
   if (!msg.id) {
@@ -910,10 +943,16 @@ const openCorrectionDialog = (msg: any) => {
   }
   correctionTarget.value = msg
   correctionText.value = msg.content || ''
+  correctionSources.value = msg.sources ? JSON.stringify(msg.sources, null, 2) : ''
+  failureReason.value = ''
   correctionVisible.value = true
 }
 
 const submitCorrection = async () => {
+  if (!failureReason.value) {
+    ElMessage.warning('请选择失败原因')
+    return
+  }
   if (!correctionTarget.value || !correctionText.value.trim()) {
     ElMessage.warning('请输入正确答案')
     return
@@ -923,7 +962,9 @@ const submitCorrection = async () => {
     await feedbackApi.submit({
       messageId: correctionTarget.value.id,
       rating: 'down',
+      failureReason: failureReason.value,
       correctionText: correctionText.value.trim(),
+      correctionSources: correctionSources.value.trim(),
     })
     correctionTarget.value.feedback = -1
     correctionTarget.value.hasCorrection = true
@@ -931,6 +972,8 @@ const submitCorrection = async () => {
     correctionVisible.value = false
     correctionTarget.value = null
     correctionText.value = ''
+    correctionSources.value = ''
+    failureReason.value = ''
   } catch (e: any) {
     ElMessage.error('提交失败：' + (e?.message || ''))
   } finally {
@@ -1543,6 +1586,9 @@ video.src-media-element { max-height: 320px; }
   font-size: 12.5px;
   color: #94a3b8;
   line-height: 1.55;
+}
+.correction-field {
+  margin-bottom: 12px;
 }
 .msg-actions { display: flex; gap: 4px; margin-top: 10px; }
 .action-btn {

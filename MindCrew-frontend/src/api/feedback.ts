@@ -7,6 +7,7 @@ export interface QaFeedback {
   userId: number
   rating: 'up' | 'down'
   comment?: string
+  failureReason?: string
   correctionText?: string
   correctionSources?: string
   status: 'pending' | 'approved' | 'rejected'
@@ -23,7 +24,9 @@ export const feedbackApi = {
     messageId: number
     rating: 'up' | 'down'
     comment?: string
+    failureReason?: string
     correctionText?: string
+    correctionSources?: string
   }): Promise<any> => request.post('/v2/feedback', data),
 
   /** 审核员列表 */

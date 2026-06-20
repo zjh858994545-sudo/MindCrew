@@ -27,6 +27,9 @@ public class QaFeedback {
 
     private String comment;
 
+    /** 失败原因：RETRIEVAL_MISS / RERANK_WRONG / HALLUCINATION / CITATION_WRONG 等 */
+    private String failureReason;
+
     /** 用户/审核员提供的标准答案 */
     private String correctionText;
 

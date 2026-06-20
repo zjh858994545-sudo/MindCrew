@@ -35,7 +35,9 @@ public class QaFeedbackController {
                 userId,
                 dto.getRating(),
                 dto.getComment(),
-                dto.getCorrectionText()
+                dto.getFailureReason(),
+                dto.getCorrectionText(),
+                dto.getCorrectionSources()
         );
         return Result.success(id);
     }
@@ -79,7 +81,9 @@ public class QaFeedbackController {
         private Long messageId;
         private String rating;          // up / down
         private String comment;
+        private String failureReason;
         private String correctionText;
+        private String correctionSources;
     }
 
     @Data
