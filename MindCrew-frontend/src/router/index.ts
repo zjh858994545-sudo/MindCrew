@@ -146,6 +146,13 @@ const router = createRouter({
           component: () => import('@/views/admin/GoldenPairView.vue'),
           meta: { title: 'Golden Pair 库', icon: 'CircleCheckFilled', requiresAdmin: true }
         },
+        // RAG Eval · 知识库质量评测
+        {
+          path: 'rag-eval',
+          name: 'RagEval',
+          component: () => import('@/views/admin/RagEvalView.vue'),
+          meta: { title: 'RAG 评测', icon: 'DataAnalysis', requiresAdmin: true }
+        },
         // 历史对话搜索 · 任务 13.5
         {
           path: 'conv-search',
