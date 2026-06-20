@@ -29,10 +29,12 @@ Copy-Item .env.example .env
 
 2. 初始化数据库脚本：
 
+当前 SQL dump 的历史库名仍为 `docmind`，这是兼容原始 schema 的数据库名；项目外显名称和应用名统一为 MindCrew。
+
 ```powershell
-mysql -u root -p mindcrew < sql/rag-eval-schema.sql
-mysql -u root -p mindcrew < sql/agent-trace-safety-schema.sql
-mysql -u root -p mindcrew < sql/feedback-loop-migration.sql
+mysql -u root -p docmind < sql/rag-eval-schema.sql
+mysql -u root -p docmind < sql/agent-trace-safety-schema.sql
+mysql -u root -p docmind < sql/feedback-loop-migration.sql
 ```
 
 3. 启动后端：
@@ -56,6 +58,18 @@ mvn test
 mvn -DskipTests package
 cd MindCrew-frontend
 npm run build
+```
+
+也可以直接运行：
+
+```powershell
+.\scripts\verify-local.ps1
+```
+
+如果本机 PowerShell 允许 Vite/esbuild 子进程，也可以运行完整前端生产构建：
+
+```powershell
+.\scripts\verify-local.ps1 -IncludeFrontendBuild
 ```
 
 当前已验证：后端 `33` 个测试通过，前端生产构建通过。

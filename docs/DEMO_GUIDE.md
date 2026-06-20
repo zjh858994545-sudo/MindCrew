@@ -6,15 +6,15 @@
 2. 执行数据库脚本：
 
 ```powershell
-mysql -u root -p mindcrew < sql/rag-eval-schema.sql
-mysql -u root -p mindcrew < sql/agent-trace-safety-schema.sql
-mysql -u root -p mindcrew < sql/feedback-loop-migration.sql
+mysql -u root -p docmind < sql/rag-eval-schema.sql
+mysql -u root -p docmind < sql/agent-trace-safety-schema.sql
+mysql -u root -p docmind < sql/feedback-loop-migration.sql
 ```
 
 3. 验证构建：
 
 ```powershell
-mvn test
+.\scripts\verify-local.ps1
 cd MindCrew-frontend
 npm run build
 ```

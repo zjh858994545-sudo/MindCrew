@@ -44,7 +44,17 @@
 
 提交：`00c4b40 feat(feedback): capture structured correction feedback`
 
+### 交付硬化
+
+- 增加 GitHub Actions CI，自动运行后端测试和前端构建。
+- 增加 `scripts/verify-local.ps1`，用于本地验收后端测试、后端打包和前端类型检查。
+- 增加 `scripts/quick-start-dev.ps1`，用于启动本地 Redis、MinIO、Milvus 等开发基础设施。
+- 修正 README 和演示文档中的数据库初始化说明，明确 `docmind` 是兼容历史 schema 的数据库名。
+- 将 Web Search 环境变量统一为 `MINDCREW_WEB_SEARCH_ENABLED`。
+- 清理 Docker 环境模板中的旧变量名和疑似真实 Key 前缀。
+
 ## 当前验证
 
 - `mvn test`：33 个测试通过。
 - `npm run build`：前端生产构建通过。
+- `.\scripts\verify-local.ps1`：默认本地验收通过。

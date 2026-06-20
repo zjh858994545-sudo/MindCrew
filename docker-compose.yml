@@ -246,7 +246,7 @@ services:
       # 大模型 / Web 搜索
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:?需要在 .env 里填入阿里云百炼 API Key}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
-      DOCMIND_WEB_SEARCH_ENABLED: ${DOCMIND_WEB_SEARCH_ENABLED:-true}
+      MINDCREW_WEB_SEARCH_ENABLED: ${MINDCREW_WEB_SEARCH_ENABLED:-true}
 
       # 阿里账单（可选）
       BSS_ENABLED: ${BSS_ENABLED:-false}
