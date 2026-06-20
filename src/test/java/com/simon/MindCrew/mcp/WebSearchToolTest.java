@@ -1,6 +1,7 @@
 package com.simon.MindCrew.mcp;
 
 import com.simon.MindCrew.config.DocmindWebSearchProperties;
+import com.simon.MindCrew.service.McpGovernanceService;
 import com.simon.MindCrew.service.rag.RetrievedChunk;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -14,6 +15,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
@@ -26,7 +32,7 @@ class WebSearchToolTest {
 
     @Test
     void webSearchReturnsEmptyWhenDisabled() {
-        WebSearchTool tool = new WebSearchTool(new RestTemplate(), disabledProperties());
+        WebSearchTool tool = new WebSearchTool(new RestTemplate(), disabledProperties(), allowAllGovernance());
 
         List<RetrievedChunk> results = tool.webSearch("MindCrew", 5);
 
@@ -38,7 +44,7 @@ class WebSearchToolTest {
         DocmindWebSearchProperties properties = configuredProperties();
         properties.setApiKey("  ");
 
-        WebSearchTool tool = new WebSearchTool(new RestTemplate(), properties);
+        WebSearchTool tool = new WebSearchTool(new RestTemplate(), properties, allowAllGovernance());
 
         List<RetrievedChunk> results = tool.webSearch("MindCrew", 5);
 
@@ -70,7 +76,7 @@ class WebSearchToolTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        WebSearchTool tool = new WebSearchTool(restTemplate, configuredProperties());
+        WebSearchTool tool = new WebSearchTool(restTemplate, configuredProperties(), allowAllGovernance());
 
         List<RetrievedChunk> results = tool.webSearch("latest mindcrew", 3);
 
@@ -90,7 +96,7 @@ class WebSearchToolTest {
         server.expect(requestTo("https://search.example.com/search"))
                 .andRespond(withServerError());
 
-        WebSearchTool tool = new WebSearchTool(restTemplate, configuredProperties());
+        WebSearchTool tool = new WebSearchTool(restTemplate, configuredProperties(), allowAllGovernance());
 
         List<RetrievedChunk> results = tool.webSearch("remote failure", 2);
 
@@ -111,5 +117,20 @@ class WebSearchToolTest {
         DocmindWebSearchProperties properties = configuredProperties();
         properties.setEnabled(false);
         return properties;
+    }
+
+    private McpGovernanceService allowAllGovernance() {
+        McpGovernanceService governanceService = mock(McpGovernanceService.class);
+        when(governanceService.checkAndStart(nullable(String.class), nullable(String.class), anyString(), any()))
+                .thenAnswer(invocation -> new McpGovernanceService.Decision(
+                        "req-1",
+                        "internal-agent",
+                        invocation.getArgument(1),
+                        invocation.getArgument(2),
+                        true,
+                        "allowed",
+                        System.currentTimeMillis(),
+                        ""));
+        return governanceService;
     }
 }

@@ -7,7 +7,7 @@
         <p class="page-desc">管理 Agent 可调用的外部工具集成，监控调用状态与性能</p>
       </div>
       <div class="header-actions">
-        <el-button :icon="Refresh" @click="loadStats" :loading="loading" circle />
+        <el-button :icon="Refresh" @click="refreshAll" :loading="loading || governanceLoading" circle />
         <el-tag type="success" effect="light" size="large">
           <span class="online-dot"></span>
           {{ enabledCount }} 个工具已启用
@@ -86,15 +86,50 @@
       </div>
     </div>
 
+    <div class="governance-strip" v-loading="governanceLoading">
+      <div class="governance-item">
+        <span>接入客户端</span>
+        <strong>{{ clients.length }}</strong>
+      </div>
+      <div class="governance-item">
+        <span>工具策略</span>
+        <strong>{{ managedPolicyCount }}</strong>
+      </div>
+      <div class="governance-item">
+        <span>最近拦截</span>
+        <strong class="danger">{{ blockedAuditCount }}</strong>
+      </div>
+      <div class="governance-item wide">
+        <span>策略基线</span>
+        <strong>{{ activeClientNames }}</strong>
+      </div>
+    </div>
+
     <!-- 调用日志 -->
     <el-card class="log-card">
       <template #header>
         <div class="card-head">
-          <span style="font-weight:600;color:#e2e8f0">最近调用日志</span>
-          <el-button size="small" text @click="clearLogs">清空</el-button>
+          <span style="font-weight:600;color:#e2e8f0">最近调用与审计</span>
+          <div class="card-actions">
+            <el-button size="small" text @click="loadGovernance">刷新审计</el-button>
+            <el-button size="small" text @click="clearLogs">清空本地</el-button>
+          </div>
         </div>
       </template>
+      <div class="audit-list" v-if="auditLogs.length">
+        <div v-for="audit in auditLogs.slice(0, 8)" :key="audit.id" class="log-item">
+          <span class="log-time">{{ formatAuditTime(audit.createTime) }}</span>
+          <span class="log-tool" :style="{ color: getToolColor(audit.toolName) }">{{ audit.toolName }}</span>
+          <span class="audit-client">{{ audit.clientId }}</span>
+          <span class="log-latency">{{ audit.latencyMs }}ms</span>
+          <span class="log-status audit-status" :class="auditStatusClass(audit.status)">
+            {{ audit.status }}
+          </span>
+        </div>
+      </div>
+      <div v-else class="log-empty">暂无审计记录</div>
       <div class="log-list" v-if="callLogs.length">
+        <div class="local-log-title">本地连通性测试</div>
         <div v-for="(log, i) in callLogs" :key="i" class="log-item">
           <span class="log-time">{{ log.time }}</span>
           <span class="log-tool" :style="{ color: getToolColor(log.tool) }">{{ log.tool }}</span>
@@ -133,7 +168,7 @@
 import { ref, computed, onMounted, h } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, VideoPlay } from '@element-plus/icons-vue'
-import { mcpApi } from '@/api/mcp'
+import { mcpApi, type McpAuditLog, type McpClient, type McpToolPolicy } from '@/api/mcp'
 
 interface Tool {
   dbId: number
@@ -151,6 +186,7 @@ interface Tool {
 }
 
 const loading = ref(false)
+const governanceLoading = ref(false)
 const testDialogVisible = ref(false)
 const currentTool = ref<Tool | null>(null)
 const testResult  = ref<any>(null)
@@ -212,8 +248,20 @@ const TOOL_DISPLAY: Record<string, { name: string; type: string; description: st
 
 const tools = ref<Tool[]>([])
 const callLogs = ref<{ time: string; tool: string; latency: number; success: boolean; testResult: string }[]>([])
+const clients = ref<McpClient[]>([])
+const policies = ref<McpToolPolicy[]>([])
+const auditLogs = ref<McpAuditLog[]>([])
 
 const enabledCount = computed(() => tools.value.filter(t => t.enabled).length)
+const managedPolicyCount = computed(() => policies.value.filter(p => p.enabled === 1).length)
+const blockedAuditCount = computed(() => auditLogs.value.filter(a => a.status === 'BLOCK').length)
+const activeClientNames = computed(() => {
+  const names = clients.value
+    .filter(c => c.status === 'active')
+    .map(c => c.displayName || c.clientId)
+    .slice(0, 2)
+  return names.length ? names.join(' / ') : '--'
+})
 
 const loadStats = async () => {
   loading.value = true
@@ -244,7 +292,31 @@ const loadStats = async () => {
   }
 }
 
-onMounted(loadStats)
+const loadGovernance = async () => {
+  governanceLoading.value = true
+  try {
+    const [clientList, policyList, audits] = await Promise.all([
+      mcpApi.listClients(),
+      mcpApi.listPolicies(),
+      mcpApi.listAudits(30),
+    ])
+    clients.value = clientList
+    policies.value = policyList
+    auditLogs.value = audits
+  } catch {
+    clients.value = []
+    policies.value = []
+    auditLogs.value = []
+  } finally {
+    governanceLoading.value = false
+  }
+}
+
+const refreshAll = async () => {
+  await Promise.all([loadStats(), loadGovernance()])
+}
+
+onMounted(refreshAll)
 
 const onToggle = async (tool: Tool, val: boolean) => {
   const newStatus = val ? 'active' : 'disabled'
@@ -284,7 +356,7 @@ const runTest = async () => {
       testResult: res.testResult,
     })
     if (callLogs.value.length > 20) callLogs.value.pop()
-    await loadStats()
+    await refreshAll()
   } catch (e: any) {
     testResult.value = { success: false, latency: 0, output: e?.message ?? '请求失败' }
   } finally {
@@ -300,10 +372,27 @@ const getLatencyClass = (ms: number) => {
   return 'lat-slow'
 }
 const getToolColor = (name: string) => {
-  const map: Record<string, string> = { DocSearch: '#38bdf8', KeywordSearch: '#818cf8', WebSearch: '#34d399', RecallMemory: '#fbbf24', StoreMemory: '#fb923c' }
+  const map: Record<string, string> = {
+    DocSearch: '#38bdf8', doc_search: '#38bdf8',
+    KeywordSearch: '#818cf8', keyword_search: '#818cf8',
+    WebSearch: '#34d399', web_search: '#34d399',
+    RecallMemory: '#fbbf24', recall_memory: '#fbbf24',
+    StoreMemory: '#fb923c', store_memory: '#fb923c',
+  }
   return map[name] || '#94a3b8'
 }
 const formatNum = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}k` : String(n)
+const formatAuditTime = (value?: string) => {
+  if (!value) return '--:--:--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.slice(11, 19) || value
+  return date.toLocaleTimeString('zh-CN', { hour12: false })
+}
+const auditStatusClass = (status: string) => {
+  if (status === 'SUCCESS') return 'ok'
+  if (status === 'BLOCK' || status === 'ERROR') return 'err'
+  return 'skip'
+}
 </script>
 
 
@@ -418,9 +507,38 @@ const formatNum = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}k` : String(
 .tool-status-text.enabled { color: #34d399; }
 .tool-status-text.disabled { color: #475569; }
 
+.governance-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.governance-item {
+  min-height: 70px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(15, 23, 42, 0.58);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+.governance-item span { color: #64748b; font-size: 12px; }
+.governance-item strong {
+  color: #e2e8f0;
+  font-size: 18px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.governance-item strong.danger { color: #f87171; }
+
 /* 日志卡 */
 .log-card :deep(.el-card__header) { padding: 12px 16px !important; }
 .card-head { display: flex; align-items: center; justify-content: space-between; }
+.card-actions { display: flex; align-items: center; gap: 8px; }
+.audit-list { display: flex; flex-direction: column; gap: 1px; margin-bottom: 8px; }
 .log-list { display: flex; flex-direction: column; gap: 1px; }
 .log-item {
   display: flex;
@@ -434,12 +552,20 @@ const formatNum = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}k` : String(
 .log-item:hover { background: var(--bg-hover); }
 .log-time { color: #475569; font-family: monospace; flex-shrink: 0; min-width: 70px; }
 .log-tool { font-weight: 700; min-width: 110px; flex-shrink: 0; }
+.audit-client { color: #94a3b8; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-query { color: #94a3b8; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-latency { color: #64748b; font-family: monospace; min-width: 60px; text-align: right; flex-shrink: 0; }
 .log-status { font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.audit-status { min-width: 72px; text-align: right; font-size: 11px; }
 .log-status.ok  { color: #34d399; }
 .log-status.err { color: #f87171; }
+.log-status.skip { color: #fbbf24; }
 .log-empty { text-align: center; color: #475569; padding: 24px; font-size: 13px; }
+.local-log-title {
+  color: #64748b;
+  font-size: 12px;
+  padding: 8px 12px 4px;
+}
 
 /* 测试结果 */
 .test-result {
@@ -462,5 +588,9 @@ const formatNum = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}k` : String(
   overflow-x: auto;
   margin: 0;
   line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .governance-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

@@ -2,12 +2,16 @@ package com.simon.MindCrew.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.simon.MindCrew.common.result.Result;
+import com.simon.MindCrew.entity.McpAuditLog;
+import com.simon.MindCrew.entity.McpClient;
+import com.simon.MindCrew.entity.McpToolPolicy;
 import com.simon.MindCrew.entity.McpToolRegistry;
 import com.simon.MindCrew.mapper.McpToolRegistryMapper;
 import com.simon.MindCrew.mcp.DocSearchTool;
 import com.simon.MindCrew.mcp.KeywordSearchTool;
 import com.simon.MindCrew.mcp.MemoryTool;
 import com.simon.MindCrew.mcp.WebSearchTool;
+import com.simon.MindCrew.service.McpGovernanceService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +34,7 @@ public class McpConsoleController {
     private final KeywordSearchTool keywordSearchTool;
     private final WebSearchTool webSearchTool;
     private final MemoryTool memoryTool;
+    private final McpGovernanceService mcpGovernanceService;
 
     // ==================== 工具列表 ====================
 
@@ -131,6 +136,64 @@ public class McpConsoleController {
         }).collect(Collectors.toList()));
 
         return Result.success(stats);
+    }
+
+    // ==================== 权限治理 ====================
+
+    /**
+     * MCP 客户端列表
+     * GET /api/mcp/clients
+     */
+    @GetMapping("/clients")
+    public Result<List<McpClient>> listClients() {
+        return Result.success(mcpGovernanceService.listClients());
+    }
+
+    /**
+     * 新增或更新 MCP 客户端策略
+     * POST /api/mcp/clients
+     */
+    @PostMapping("/clients")
+    public Result<McpClient> saveClient(@RequestBody McpClient client) {
+        if (client.getClientId() == null || client.getClientId().isBlank()) {
+            return Result.error("clientId 不能为空");
+        }
+        return Result.success(mcpGovernanceService.saveClient(client));
+    }
+
+    /**
+     * 工具策略列表
+     * GET /api/mcp/policies?clientId=internal-agent
+     */
+    @GetMapping("/policies")
+    public Result<List<McpToolPolicy>> listPolicies(
+            @RequestParam(value = "clientId", required = false) String clientId) {
+        return Result.success(mcpGovernanceService.listPolicies(clientId));
+    }
+
+    /**
+     * 新增或更新 client/tool 粒度策略
+     * POST /api/mcp/policies
+     */
+    @PostMapping("/policies")
+    public Result<McpToolPolicy> savePolicy(@RequestBody McpToolPolicy policy) {
+        if (policy.getClientId() == null || policy.getClientId().isBlank()) {
+            return Result.error("clientId 不能为空");
+        }
+        if (policy.getToolName() == null || policy.getToolName().isBlank()) {
+            return Result.error("toolName 不能为空");
+        }
+        return Result.success(mcpGovernanceService.savePolicy(policy));
+    }
+
+    /**
+     * 最近 MCP 审计日志
+     * GET /api/mcp/audits?limit=50
+     */
+    @GetMapping("/audits")
+    public Result<List<McpAuditLog>> listAudits(
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
+        return Result.success(mcpGovernanceService.listAudits(limit));
     }
 
     /**

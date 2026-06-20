@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.simon.MindCrew.agent.AgentToolContext;
 import com.simon.MindCrew.entity.McpToolRegistry;
 import com.simon.MindCrew.mapper.McpToolRegistryMapper;
+import com.simon.MindCrew.service.McpGovernanceService;
 import com.simon.MindCrew.service.rag.RetrievedChunk;
 import com.simon.MindCrew.service.rag.VectorRetriever;
 import lombok.RequiredArgsConstructor;
@@ -13,7 +14,9 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * MCP Tool：语义文档检索
@@ -26,6 +29,7 @@ public class DocSearchTool {
 
     private final VectorRetriever vectorRetriever;
     private final McpToolRegistryMapper mcpToolRegistryMapper;
+    private final McpGovernanceService mcpGovernanceService;
 
     /** 工具注册名（与 mcp_tool_registry 表中 name 字段对应） */
     public static final String TOOL_NAME = "doc_search";
@@ -44,10 +48,18 @@ public class DocSearchTool {
             @ToolParam(description = "返回文档切片数量，建议 5-20") int topK,
             @ToolParam(description = "知识库ID列表过滤，不传则检索全部知识库", required = false) List<Long> kbIds) {
         long start = System.currentTimeMillis();
+        McpGovernanceService.Decision decision = null;
         try {
             // Agent 上下文激活时，用上下文中的 kbIds 作为兜底（LLM 无需传递此参数）
             List<Long> effectiveKbIds = (kbIds != null && !kbIds.isEmpty()) ? kbIds
                     : (AgentToolContext.isActive() ? AgentToolContext.get().getKbIds() : null);
+
+            decision = mcpGovernanceService.checkAndStart(null, null, TOOL_NAME,
+                    governanceInput(query, topK, effectiveKbIds));
+            if (!decision.allowed()) {
+                log.warn("[DocSearchTool] blocked by MCP governance: reason={}", decision.reason());
+                return Collections.emptyList();
+            }
 
             List<RetrievedChunk> results = vectorRetriever.retrieve(query, null, effectiveKbIds, topK);
 
@@ -60,12 +72,22 @@ public class DocSearchTool {
 
             log.info("[DocSearchTool] query='{}' kbIds={} topK={} results={} latency={}ms",
                     query, effectiveKbIds, topK, results.size(), latency);
+            mcpGovernanceService.recordResult(decision, "SUCCESS", results.size() + " chunks", null);
             return results;
 
         } catch (Exception e) {
             log.error("[DocSearchTool] 检索异常: {}", e.getMessage(), e);
+            mcpGovernanceService.recordResult(decision, "ERROR", null, e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    private Map<String, Object> governanceInput(String query, int topK, List<Long> kbIds) {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("query", query);
+        input.put("topK", topK);
+        input.put("kbIds", kbIds);
+        return input;
     }
 
     /**

@@ -82,6 +82,7 @@ public class MindCrewAgent {
     private final RRFFusion          rrfFusion;
     private final CrossEncoderReranker reranker;
     private final QueryRewriter      queryRewriter;
+    private final QueryPlannerService queryPlannerService;
     private final ContextCompressor  contextCompressor;
     private final AiConfigHolder     aiConfigHolder;
     private final PromptAssembler    promptAssembler;
@@ -271,14 +272,22 @@ public class MindCrewAgent {
 
         String rewrittenQuery = queryRewriter.rewrite(question);
         state.setRewrittenQuery(rewrittenQuery);
+        QueryPlannerService.QueryPlan queryPlan = queryPlannerService.plan(
+                question, rewrittenQuery, state.getUserId(), state.getKbIds());
+        state.setIntentType(queryPlan.intentType());
+        state.setSelectedTools(new ArrayList<>(queryPlan.tools()));
+        state.setQueryPlan(toQueryPlanLog(queryPlan));
 
         updateTrace(state, 1, "改写完成：" + rewrittenQuery);
         agentTraceService.recordSpan(state.getTraceId(), "QUERY_ANALYSIS", "query_rewrite",
                 question, rewrittenQuery, 0, "OK", null);
+        agentTraceService.recordSpan(state.getTraceId(), "QUERY_PLANNER", "query_planner",
+                question, state.getQueryPlan(), 0, "OK", null);
         sendSseEvent(emitter, "rewrite", Map.of(
                 "original", question,
                 "rewritten", rewrittenQuery
         ));
+        sendSseEvent(emitter, "query-plan", state.getQueryPlan());
 
         // ===== Thought 2：文档直读 & 显式记忆写入 =====
         boolean documentScopedRetrieval = selectedDocumentScopeDecider.shouldDirectRead(state.getKbIds(), question);
@@ -352,6 +361,37 @@ public class MindCrewAgent {
             fused = rrfFusion.fuse(vectorPart, bm25Part, rrfTopN);
             List<RetrievedChunk> rerankCandidates = mergeForRerank(fused, webPart);
             reranked = reranker.rerank(rewrittenQuery, rerankCandidates, rerankTopK);
+        }
+        QueryPlannerService.RetrievalQuality retrievalQuality =
+                queryPlannerService.assessRetrieval(queryPlan, reranked);
+        if (!state.isDocumentScopedRetrieval() && retrievalQuality.lowConfidence()) {
+            List<RetrievedChunk> retryChunks = retryRetrieveWithPlan(state, queryPlan, retrievalQuality);
+            if (!retryChunks.isEmpty()) {
+                state.setRetrievalRetryCount(state.getRetrievalRetryCount() + 1);
+                allChunks = mergeUniqueChunks(allChunks, retryChunks);
+                vectorPart = allChunks.stream()
+                        .filter(c -> c.getSource() == RetrievedChunk.Source.VECTOR
+                                || c.getSource() == RetrievedChunk.Source.HYBRID)
+                        .collect(Collectors.toList());
+                bm25Part = allChunks.stream()
+                        .filter(c -> c.getSource() == RetrievedChunk.Source.BM25)
+                        .collect(Collectors.toList());
+                webPart = allChunks.stream()
+                        .filter(c -> c.getSource() == RetrievedChunk.Source.WEB)
+                        .collect(Collectors.toList());
+                fused = rrfFusion.fuse(vectorPart, bm25Part, rrfTopN);
+                reranked = reranker.rerank(rewrittenQuery, mergeForRerank(fused, webPart), rerankTopK);
+                retrievalQuality = queryPlannerService.assessRetrieval(queryPlan, reranked);
+                agentTraceService.recordSpan(state.getTraceId(), "RETRIEVAL_RETRY", "low_confidence_retry",
+                        queryPlannerService.retryQueries(queryPlan),
+                        Map.of("retryChunks", retryChunks.size(), "quality", retrievalQuality),
+                        0, "OK", null);
+                sendSseEvent(emitter, "retrieval-retry", Map.of(
+                        "retryCount", state.getRetrievalRetryCount(),
+                        "reasons", retrievalQuality.reasons(),
+                        "addedChunks", retryChunks.size()
+                ));
+            }
         }
         agentTraceService.recordSpan(state.getTraceId(), "RRF_FUSION", "rrf_fusion",
                 "vector=" + vectorPart.size() + ",bm25=" + bm25Part.size(),
@@ -526,7 +566,9 @@ public class MindCrewAgent {
                 state.getMemoryContext().putAll(memory);
             }
             state.setSelectedTools(calledTools);
-            state.setIntentType("llm_driven");
+            if (state.getIntentType() == null || state.getIntentType().isBlank()) {
+                state.setIntentType("llm_driven");
+            }
 
             // 记录 MCP 调用到 state（供前端展示）
             for (String tool : calledTools) {
@@ -585,6 +627,79 @@ public class MindCrewAgent {
     }
 
     // ==================== 多路召回（降级路径）====================
+
+    private Map<String, Object> toQueryPlanLog(QueryPlannerService.QueryPlan plan) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("intentType", plan.intentType());
+        out.put("intentConfidence", plan.intentConfidence());
+        out.put("primaryQuery", plan.primaryQuery());
+        out.put("queryVariants", plan.queryVariants());
+        out.put("tools", plan.tools());
+        out.put("hydePreview", preview(plan.hydeDocument(), 180));
+        out.put("retryPolicy", plan.retryPolicy());
+        return out;
+    }
+
+    private List<RetrievedChunk> retryRetrieveWithPlan(AgentState state,
+                                                       QueryPlannerService.QueryPlan plan,
+                                                       QueryPlannerService.RetrievalQuality quality) {
+        List<RetrievedChunk> all = new ArrayList<>();
+        List<String> queries = queryPlannerService.retryQueries(plan);
+        int expandedTopK = plan.retryPolicy().expandedTopK();
+        log.info("[MindCrewAgent] low confidence retry traceId={} reasons={} queries={}",
+                state.getTraceId(), quality.reasons(), queries.size());
+
+        for (String query : queries) {
+            if (plan.tools().contains(DocSearchTool.TOOL_NAME)) {
+                long t0 = System.currentTimeMillis();
+                List<RetrievedChunk> chunks = docSearchTool.searchDocs(query, expandedTopK, state.getKbIds());
+                all.addAll(chunks);
+                recordMcpCall(state, DocSearchTool.TOOL_NAME,
+                        Map.of("query", preview(query, 160), "topK", expandedTopK, "retry", true),
+                        chunks.size() + " chunks",
+                        System.currentTimeMillis() - t0);
+            }
+            if (plan.tools().contains(KeywordSearchTool.TOOL_NAME)) {
+                long t0 = System.currentTimeMillis();
+                List<RetrievedChunk> chunks = keywordSearchTool.keywordSearch(query, state.getKbIds(), null);
+                all.addAll(chunks);
+                recordMcpCall(state, KeywordSearchTool.TOOL_NAME,
+                        Map.of("query", preview(query, 160), "retry", true),
+                        chunks.size() + " chunks",
+                        System.currentTimeMillis() - t0);
+            }
+        }
+
+        if (plan.retryPolicy().enableWebSearchOnRetry()) {
+            long t0 = System.currentTimeMillis();
+            List<RetrievedChunk> web = webSearchTool.webSearch(plan.primaryQuery(), 5);
+            all.addAll(web);
+            recordMcpCall(state, WebSearchTool.TOOL_NAME,
+                    Map.of("query", plan.primaryQuery(), "maxResults", 5, "retry", true),
+                    web.size() + " results",
+                    System.currentTimeMillis() - t0);
+        }
+        return mergeUniqueChunks(List.of(), all);
+    }
+
+    private List<RetrievedChunk> mergeUniqueChunks(List<RetrievedChunk> first, List<RetrievedChunk> second) {
+        Map<String, RetrievedChunk> merged = new LinkedHashMap<>();
+        for (RetrievedChunk chunk : first) {
+            merged.putIfAbsent(buildChunkKey(chunk), chunk);
+        }
+        for (RetrievedChunk chunk : second) {
+            merged.putIfAbsent(buildChunkKey(chunk), chunk);
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private String preview(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.replace('\n', ' ').trim();
+        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength) + "...";
+    }
 
     /**
      * 根据意图选用工具执行多路召回（降级使用，直接 Java 调用）
@@ -1159,8 +1274,10 @@ public class MindCrewAgent {
         log.put("originalQuery", originalQuery);
         log.put("rewrittenQuery", rewrittenQuery);
         log.put("intentType", state.getIntentType());
+        log.put("queryPlan", state.getQueryPlan());
         log.put("selectedTools", state.getSelectedTools());
         log.put("retrievalMode", state.isDocumentScopedRetrieval() ? "selected_document" : "search");
+        log.put("retrievalRetryCount", state.getRetrievalRetryCount());
         log.put("selectedKbIds", new ArrayList<>(state.getKbIds()));
         log.put("vectorResults", vectorCount);
         log.put("bm25Results", bm25Count);

@@ -1,5 +1,6 @@
 package com.simon.MindCrew.mcp;
 
+import com.simon.MindCrew.service.McpGovernanceService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -12,6 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,7 +31,7 @@ class MemoryToolTest {
         when(valueOperations.get("user:memory:user-1"))
                 .thenReturn("{\"profile.nickname\":\"老张\",\"health.allergy\":\"青霉素\"}");
 
-        MemoryTool tool = new MemoryTool(redisTemplate);
+        MemoryTool tool = new MemoryTool(redisTemplate, allowAllGovernance());
 
         Map<String, Object> memory = tool.recallMemory("user-1", "allergy");
 
@@ -44,7 +48,7 @@ class MemoryToolTest {
         when(valueOperations.get("user:memory:user-2"))
                 .thenReturn("{\"profile.nickname\":\"小王\"}");
 
-        MemoryTool tool = new MemoryTool(redisTemplate);
+        MemoryTool tool = new MemoryTool(redisTemplate, allowAllGovernance());
 
         Map<String, Object> result = tool.storeMemory("user-2", Map.of("preference.likes", "低盐饮食"));
 
@@ -62,11 +66,26 @@ class MemoryToolTest {
     @Test
     void storeMemoryRejectsEmptyPayload() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        MemoryTool tool = new MemoryTool(redisTemplate);
+        MemoryTool tool = new MemoryTool(redisTemplate, allowAllGovernance());
 
         Map<String, Object> result = tool.storeMemory("user-3", Map.of());
 
         assertFalse((Boolean) result.get("success"));
         assertEquals(0, ((java.util.List<?>) result.get("storedKeys")).size());
+    }
+
+    private McpGovernanceService allowAllGovernance() {
+        McpGovernanceService governanceService = mock(McpGovernanceService.class);
+        when(governanceService.checkAndStart(nullable(String.class), nullable(String.class), anyString(), any()))
+                .thenAnswer(invocation -> new McpGovernanceService.Decision(
+                        "req-1",
+                        "internal-agent",
+                        invocation.getArgument(1),
+                        invocation.getArgument(2),
+                        true,
+                        "allowed",
+                        System.currentTimeMillis(),
+                        ""));
+        return governanceService;
     }
 }

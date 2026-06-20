@@ -4,6 +4,7 @@ import com.simon.MindCrew.service.rag.RetrievedChunk;
 import lombok.Data;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,6 +29,12 @@ public class AgentState {
 
     /** 本次推理选中的工具列表 */
     private List<String> selectedTools = new ArrayList<>();
+
+    /** Query Planner 输出摘要：intent、variants、HyDE、retry policy */
+    private Map<String, Object> queryPlan = new LinkedHashMap<>();
+
+    /** 低置信度二次检索触发次数 */
+    private int retrievalRetryCount;
 
     /** 多路召回 + 重排序后的切片集合 */
     private List<RetrievedChunk> retrievedChunks = new ArrayList<>();

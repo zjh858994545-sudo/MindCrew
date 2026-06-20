@@ -1,6 +1,7 @@
 package com.simon.MindCrew.mcp;
 
 import com.simon.MindCrew.agent.AgentToolContext;
+import com.simon.MindCrew.service.McpGovernanceService;
 import com.simon.MindCrew.service.rag.BM25Retriever;
 import com.simon.MindCrew.service.rag.RetrievedChunk;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +11,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +25,7 @@ import java.util.Map;
 public class KeywordSearchTool {
 
     private final BM25Retriever bm25Retriever;
+    private final McpGovernanceService mcpGovernanceService;
 
     /** 工具注册名 */
     public static final String TOOL_NAME = "keyword_search";
@@ -40,6 +43,7 @@ public class KeywordSearchTool {
             @ToolParam(description = "检索关键词或短句") String query,
             @ToolParam(description = "知识库ID列表过滤，不传则检索全部", required = false) List<Long> kbIds,
             @ToolParam(description = "额外过滤条件，支持 category/contentType/topK 字段", required = false) Map<String, Object> filters) {
+        McpGovernanceService.Decision decision = null;
         try {
             // Agent 上下文激活时，用上下文中的 kbIds 作为兜底
             List<Long> effectiveKbIds = (kbIds != null && !kbIds.isEmpty()) ? kbIds
@@ -60,6 +64,13 @@ public class KeywordSearchTool {
                 }
             }
 
+            decision = mcpGovernanceService.checkAndStart(null, null, TOOL_NAME,
+                    governanceInput(query, effectiveKbIds, filters, topK));
+            if (!decision.allowed()) {
+                log.warn("[KeywordSearchTool] blocked by MCP governance: reason={}", decision.reason());
+                return Collections.emptyList();
+            }
+
             List<RetrievedChunk> results = bm25Retriever.retrieve(query, categoryFilter, effectiveKbIds, topK);
 
             // contentType 过滤
@@ -75,11 +86,22 @@ public class KeywordSearchTool {
             }
 
             log.info("[KeywordSearchTool] query='{}' kbIds={} results={}", query, effectiveKbIds, results.size());
+            mcpGovernanceService.recordResult(decision, "SUCCESS", results.size() + " chunks", null);
             return results;
 
         } catch (Exception e) {
             log.error("[KeywordSearchTool] 检索异常: {}", e.getMessage(), e);
+            mcpGovernanceService.recordResult(decision, "ERROR", null, e.getMessage());
             return Collections.emptyList();
         }
+    }
+
+    private Map<String, Object> governanceInput(String query, List<Long> kbIds, Map<String, Object> filters, int topK) {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("query", query);
+        input.put("kbIds", kbIds);
+        input.put("topK", topK);
+        input.put("filters", filters);
+        return input;
     }
 }

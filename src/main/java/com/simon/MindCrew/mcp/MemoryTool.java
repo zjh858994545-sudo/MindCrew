@@ -2,6 +2,7 @@ package com.simon.MindCrew.mcp;
 
 import com.alibaba.fastjson2.JSON;
 import com.simon.MindCrew.agent.AgentToolContext;
+import com.simon.MindCrew.service.McpGovernanceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
@@ -31,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 public class MemoryTool {
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final McpGovernanceService mcpGovernanceService;
 
     public static final String RECALL_TOOL_NAME = "recall_memory";
     public static final String STORE_TOOL_NAME = "store_memory";
@@ -120,10 +122,20 @@ public class MemoryTool {
         // Agent 上下文激活时，userId 由系统注入，LLM 无需感知
         String effectiveUserId = (userId != null && !userId.isBlank()) ? userId
                 : (AgentToolContext.isActive() ? AgentToolContext.get().getUserId() : userId);
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("userId", effectiveUserId);
+        input.put("topic", topic);
+        McpGovernanceService.Decision decision = mcpGovernanceService.checkAndStart(
+                null, effectiveUserId, RECALL_TOOL_NAME, input);
+        if (!decision.allowed()) {
+            log.warn("[MemoryTool] recall blocked by MCP governance: reason={}", decision.reason());
+            return Collections.emptyMap();
+        }
         Map<String, Object> result = new LinkedHashMap<>(recall(effectiveUserId, topic));
         if (AgentToolContext.isActive()) {
             AgentToolContext.get().putMemory(RECALL_TOOL_NAME, result);
         }
+        mcpGovernanceService.recordResult(decision, "SUCCESS", result.keySet(), null);
         return result;
     }
 
@@ -131,12 +143,31 @@ public class MemoryTool {
     public Map<String, Object> storeMemory(
             @ToolParam(description = "用户ID") String userId,
             @ToolParam(description = "需要写入的记忆键值对") Map<String, Object> prefs) {
-        boolean success = store(userId, prefs);
+        String effectiveUserId = (userId != null && !userId.isBlank()) ? userId
+                : (AgentToolContext.isActive() ? AgentToolContext.get().getUserId() : userId);
+
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("userId", effectiveUserId);
+        input.put("keys", prefs != null ? List.copyOf(prefs.keySet()) : List.of());
+        McpGovernanceService.Decision decision = mcpGovernanceService.checkAndStart(
+                null, effectiveUserId, STORE_TOOL_NAME, input);
 
         Map<String, Object> result = new LinkedHashMap<>();
+        if (!decision.allowed()) {
+            log.warn("[MemoryTool] store blocked by MCP governance: reason={}", decision.reason());
+            result.put("success", false);
+            result.put("userId", effectiveUserId);
+            result.put("storedKeys", List.of());
+            result.put("reason", decision.reason());
+            return result;
+        }
+
+        boolean success = store(effectiveUserId, prefs);
         result.put("success", success);
-        result.put("userId", userId);
+        result.put("userId", effectiveUserId);
         result.put("storedKeys", prefs != null ? List.copyOf(prefs.keySet()) : List.of());
+        mcpGovernanceService.recordResult(decision, success ? "SUCCESS" : "ERROR",
+                result.get("storedKeys"), success ? null : "store_failed");
         return result;
     }
 

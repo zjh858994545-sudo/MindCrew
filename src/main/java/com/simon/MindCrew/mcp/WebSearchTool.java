@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.simon.MindCrew.agent.AgentToolContext;
 import com.simon.MindCrew.config.DocmindWebSearchProperties;
+import com.simon.MindCrew.service.McpGovernanceService;
 import com.simon.MindCrew.service.rag.RetrievedChunk;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +19,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * MCP Tool：互联网实时检索（Tavily）
@@ -33,6 +36,7 @@ public class WebSearchTool {
 
     private final RestTemplate webSearchRestTemplate;
     private final DocmindWebSearchProperties properties;
+    private final McpGovernanceService mcpGovernanceService;
 
     /**
      * 互联网检索
@@ -43,15 +47,24 @@ public class WebSearchTool {
      */
     @Tool(description = "互联网实时检索：调用 Tavily 联网搜索获取最新网页标题、链接和摘要，适用于新闻、政策、时效性信息查询")
     public List<RetrievedChunk> webSearch(String query, int maxResults) {
+        McpGovernanceService.Decision decision = mcpGovernanceService.checkAndStart(null, null, TOOL_NAME,
+                governanceInput(query, maxResults));
+        if (!decision.allowed()) {
+            log.warn("[WebSearchTool] blocked by MCP governance: reason={}", decision.reason());
+            return List.of();
+        }
         if (!properties.isEnabled()) {
             log.info("[WebSearchTool] disabled, skip query='{}'", query);
+            mcpGovernanceService.recordResult(decision, "SKIPPED", null, "web_search_disabled");
             return List.of();
         }
         if (!StringUtils.hasText(query) || maxResults <= 0) {
+            mcpGovernanceService.recordResult(decision, "SKIPPED", null, "invalid_query_or_max_results");
             return List.of();
         }
         if (!StringUtils.hasText(properties.getApiKey())) {
             log.warn("[WebSearchTool] apiKey not configured, skip query='{}'", query);
+            mcpGovernanceService.recordResult(decision, "SKIPPED", null, "api_key_missing");
             return List.of();
         }
 
@@ -75,6 +88,7 @@ public class WebSearchTool {
 
             if (!response.getStatusCode().is2xxSuccessful() || !StringUtils.hasText(response.getBody())) {
                 log.warn("[WebSearchTool] non-success response status={}", response.getStatusCode());
+                mcpGovernanceService.recordResult(decision, "ERROR", null, "non_success_response_" + response.getStatusCode());
                 return List.of();
             }
 
@@ -85,11 +99,20 @@ public class WebSearchTool {
             }
 
             log.info("[WebSearchTool] query='{}' maxResults={} results={}", query, maxResults, results.size());
+            mcpGovernanceService.recordResult(decision, "SUCCESS", results.size() + " web results", null);
             return results;
         } catch (Exception e) {
             log.warn("[WebSearchTool] remote search failed query='{}': {}", query, e.getMessage());
+            mcpGovernanceService.recordResult(decision, "ERROR", null, e.getMessage());
             return List.of();
         }
+    }
+
+    private Map<String, Object> governanceInput(String query, int maxResults) {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("query", query);
+        input.put("maxResults", maxResults);
+        return input;
     }
 
     private List<RetrievedChunk> mapResults(String responseBody, int maxResults) {
