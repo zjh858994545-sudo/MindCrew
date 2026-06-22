@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: MindCrew-test
+  ai:
+    openai:
+      api-key: test-only-api-key
+      base-url: http://localhost
+      chat:
+        options:
+          model: test-model
+      embedding:
+        options:
+          model: test-embedding
+          dimensions: 1024
+    mcp:
+      server:
+        enabled: false
+  datasource:
+    url: jdbc:h2:mem:mindcrew_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+llm:
+  base-url: http://localhost
+  api-key: test-only-api-key
+  model: test-model
+  embedding-model: test-embedding
+  timeout: 1
+
+crypto:
+  master-key: test-only-crypto-master-key-32chars
+
+jwt:
+  secret: test-only-jwt-secret-change-me-32chars
+  expiration: 86400000
+  refresh-expiration: 604800000
+
+mindcrew:
+  web-search:
+    enabled: false
+    tavily-endpoint: http://localhost
+    api-key:
+
+milvus:
+  host: 127.0.0.1
+  port: 19530
+  collection-name: mindcrew_test
+  dimension: 1024
