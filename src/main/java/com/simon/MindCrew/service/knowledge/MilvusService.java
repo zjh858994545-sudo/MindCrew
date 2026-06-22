@@ -1,13 +1,16 @@
 package com.simon.MindCrew.service.knowledge;
 
 import io.milvus.client.MilvusServiceClient;
+import io.milvus.common.clientenum.ConsistencyLevelEnum;
 import io.milvus.grpc.DataType;
 import io.milvus.grpc.MutationResult;
+import io.milvus.grpc.SearchResults;
 import io.milvus.param.*;
 import io.milvus.param.collection.*;
 import io.milvus.param.dml.*;
 import io.milvus.param.index.*;
 import io.milvus.param.dml.DeleteParam;
+import io.milvus.response.SearchResultsWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -188,6 +191,7 @@ public class MilvusService {
         if (result.getStatus() != R.Status.Success.getCode()) {
             throw new RuntimeException("向量插入失败: " + result.getMessage());
         }
+        milvusClient.flush(FlushParam.newBuilder().withCollectionNames(List.of(collectionName)).build());
         log.info("向量插入成功: {}条", chunks.size());
     }
 
@@ -213,13 +217,109 @@ public class MilvusService {
      */
     public List<SearchResult> search(List<Float> queryVector, String categoryFilter,
                                       int topK) {
-        // 此方法将在 Phase 3 RAG链路中完整实现
-        // 这里提供基础框架
-        return new ArrayList<>();
+        if (queryVector == null || queryVector.isEmpty()) {
+            return new ArrayList<>();
+        }
+        if (dimension != null && queryVector.size() != dimension) {
+            log.warn("Milvus search skipped: query vector dimension={} expected={}", queryVector.size(), dimension);
+            return new ArrayList<>();
+        }
+
+        try {
+            SearchParam.Builder builder = SearchParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .withMetricType(MetricType.COSINE)
+                    .withOutFields(Arrays.asList("id", "content", "category", "content_type",
+                            "chapter", "page_number", "knowledge_base_id"))
+                    .withTopK(Math.max(1, topK))
+                    .withVectors(List.of(queryVector))
+                    .withVectorFieldName("embedding")
+                    .withConsistencyLevel(ConsistencyLevelEnum.BOUNDED)
+                    .withParams("{\"ef\": 64}");
+
+            String filter = buildFilterExpression(categoryFilter);
+            if (filter != null) {
+                builder.withExpr(filter);
+            }
+
+            R<SearchResults> response = milvusClient.search(builder.build());
+            if (response.getStatus() != R.Status.Success.getCode()) {
+                log.warn("Milvus search failed: {}", response.getMessage());
+                return new ArrayList<>();
+            }
+
+            SearchResultsWrapper wrapper = new SearchResultsWrapper(response.getData().getResults());
+            List<SearchResultsWrapper.IDScore> scores = wrapper.getIDScore(0);
+            List<SearchResult> results = new ArrayList<>(scores.size());
+
+            for (int i = 0; i < scores.size(); i++) {
+                SearchResultsWrapper.IDScore score = scores.get(i);
+                results.add(new SearchResult(
+                        scoreId(score),
+                        score.getScore(),
+                        fieldValue(wrapper, "content", i),
+                        fieldValue(wrapper, "category", i),
+                        fieldValue(wrapper, "content_type", i),
+                        fieldValue(wrapper, "chapter", i),
+                        intFieldValue(wrapper, "page_number", i),
+                        longFieldValue(wrapper, "knowledge_base_id", i)
+                ));
+            }
+            log.info("Milvus search success: topK={} hits={}", topK, results.size());
+            return results;
+        } catch (Exception ex) {
+            log.warn("Milvus search exception: {}", ex.getMessage());
+            return new ArrayList<>();
+        }
     }
 
     private String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    private String buildFilterExpression(String categoryFilter) {
+        if (categoryFilter == null || categoryFilter.isBlank()) {
+            return null;
+        }
+        return "category == \"" + categoryFilter.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private String fieldValue(SearchResultsWrapper wrapper, String fieldName, int index) {
+        try {
+            List<?> values = wrapper.getFieldData(fieldName, 0);
+            if (values != null && index < values.size() && values.get(index) != null) {
+                return values.get(index).toString();
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    private int intFieldValue(SearchResultsWrapper wrapper, String fieldName, int index) {
+        String value = fieldValue(wrapper, fieldName, index);
+        try {
+            return value.isBlank() ? 0 : Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private long longFieldValue(SearchResultsWrapper wrapper, String fieldName, int index) {
+        String value = fieldValue(wrapper, fieldName, index);
+        try {
+            return value.isBlank() ? 0L : Long.parseLong(value);
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
+    }
+
+    private String scoreId(SearchResultsWrapper.IDScore score) {
+        try {
+            String id = score.getStrID();
+            if (id != null && !id.isBlank()) {
+                return id;
+            }
+        } catch (Exception ignored) {}
+        return String.valueOf(score.getLongID());
     }
 
     /**

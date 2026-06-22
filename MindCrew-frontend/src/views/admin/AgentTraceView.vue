@@ -89,10 +89,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import { agentTraceApi, type SafetyEvent, type TraceDetail, type TraceRecord } from '@/api/agentTrace'
 
+const route = useRoute()
 const traces = ref<TraceRecord[]>([])
 const detail = ref<TraceDetail | null>(null)
 const safetyEvents = ref<SafetyEvent[]>([])
@@ -105,7 +107,10 @@ async function refresh() {
   ])
   traces.value = traceList
   safetyEvents.value = events
-  if (!currentTraceId.value && traceList.length) {
+  const routeTraceId = queryTraceId()
+  if (routeTraceId) {
+    await selectTrace(routeTraceId)
+  } else if (!currentTraceId.value && traceList.length) {
     const firstTrace = traceList[0]
     if (firstTrace) {
       await selectTrace(firstTrace.traceId)
@@ -119,6 +124,18 @@ async function selectTrace(traceId: string) {
   currentTraceId.value = traceId
   detail.value = await agentTraceApi.detail(traceId)
 }
+
+function queryTraceId() {
+  const value = route.query.traceId
+  return Array.isArray(value) ? value[0] : value
+}
+
+watch(() => route.query.traceId, async () => {
+  const traceId = queryTraceId()
+  if (traceId) {
+    await selectTrace(traceId)
+  }
+})
 
 onMounted(refresh)
 </script>

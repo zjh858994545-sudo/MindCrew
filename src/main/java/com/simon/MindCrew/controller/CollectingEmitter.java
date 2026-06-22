@@ -5,10 +5,8 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.Getter;
 import org.springframework.http.MediaType;
-import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,111 +14,187 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 把 Agent 的 SSE 流式输出收集成完整 JSON 响应。
- *
- * 用于 /api/v3/chat 这种"外部接入需要一次性 JSON"的场景。
- * 不破坏 Agent 现有 SSE 接口（前端 chat 仍用 SseEmitter）。
- *
- * 工作原理：
- *   - 覆盖 SseEmitter 的 send/complete 方法
- *   - 解析 Agent 发出的 SseEventBuilder（event=token / done / rewrite）
- *   - 把 token.content 累加到 answerBuf；done.sources 收集
- *   - 调用方等 agent.execute() 返回后调 getAnswer() / getSources()
- *
- * 不依赖任何 HTTP 响应，纯内存收集。
+ * In-memory SSE collector used by non-streaming internal callers.
  */
 @Getter
 public class CollectingEmitter extends SseEmitter {
 
     private final StringBuilder answerBuf = new StringBuilder();
     private final List<Map<String, Object>> sources = new ArrayList<>();
+    private final Map<String, Object> donePayload = new LinkedHashMap<>();
+    private final Map<String, Object> queryPlan = new LinkedHashMap<>();
+    private final Map<String, Object> retrievalLog = new LinkedHashMap<>();
+    private final List<Map<String, Object>> agentTrace = new ArrayList<>();
+    private final List<String> errors = new ArrayList<>();
+
     private int inputTokens = 0;
     private int outputTokens = 0;
+    private Long conversationId;
+    private String traceId;
+    private String intentType;
+    private boolean fallback;
+    private boolean emergency;
+    private Boolean reflectionPassed;
 
     public CollectingEmitter() {
         super(300_000L);
-        // 把 handler 设置为空 ServerHttpResponse，防止父类初始化路径异常
-        // SseEmitter 的 extendResponse / initialize 在 send 时按需求要 handler，但 send(SseEventBuilder)
-        // 在 handler == null 时会抛 IllegalStateException ——
-        // 所以我们用 noopInit() 避免实际 HTTP 写出（见下方 send 重写）
     }
 
-    /** 关键 · 拦截 Agent 发的事件（agent 用的就是这个签名） */
     @Override
     public void send(SseEventBuilder builder) {
         try {
             Set<DataWithMediaType> events = builder.build();
-            for (DataWithMediaType e : events) {
-                Object d = e.getData();
-                if (d == null) continue;
-                String s = d.toString();
-                if (s.startsWith("event:")) {
-                    // SseEmitter.event() builder 把 event 名和 data 各自作为一个 DataWithMediaType
-                    // 我们只关心 data 里的 JSON
-                    continue;
+            for (DataWithMediaType event : events) {
+                Object data = event.getData();
+                if (data == null) continue;
+                String raw = data.toString();
+                if (!raw.startsWith("event:")) {
+                    tryHandleAsJsonEvent(raw);
                 }
-                tryHandleAsJsonEvent(s);
             }
         } catch (Exception ignored) {
-            // 单事件失败不影响主流程
+            // A collector must never break the main Agent flow.
         }
     }
 
-    /** 兼容其它 send 重载 · 直接丢给 builder 路径 */
     @Override
     public void send(Object obj) {
-        if (obj instanceof SseEventBuilder b) send(b);
-        else if (obj != null) tryHandleAsJsonEvent(obj.toString());
+        if (obj instanceof SseEventBuilder builder) {
+            send(builder);
+        } else if (obj != null) {
+            tryHandleAsJsonEvent(obj.toString());
+        }
     }
 
     @Override
-    public void send(Object obj, MediaType mediaType) { send(obj); }
+    public void send(Object obj, MediaType mediaType) {
+        send(obj);
+    }
 
     @Override
-    public void complete() { /* 不发响应 */ }
+    public void complete() {
+        // no HTTP response
+    }
 
     @Override
-    public void completeWithError(Throwable ex) { /* 不发响应 */ }
+    public void completeWithError(Throwable ex) {
+        if (ex != null) {
+            errors.add(ex.getMessage());
+        }
+    }
 
-    // ─────────────────────────────────────────────
-    // 内部解析
-    // ─────────────────────────────────────────────
     private void tryHandleAsJsonEvent(String raw) {
         if (raw == null || raw.isBlank()) return;
-        // 不一定是 JSON · 兼容空和非 JSON 数据
-        if (!raw.trim().startsWith("{") && !raw.trim().startsWith("[")) return;
+        String text = raw.trim();
+        if (!text.startsWith("{") && !text.startsWith("[")) return;
         try {
-            JSONObject d = JSON.parseObject(raw);
-            // token 事件
-            if (d.containsKey("content")) {
-                Object c = d.get("content");
-                if (c != null) {
-                    String s = c.toString();
-                    answerBuf.append(s);
-                    outputTokens += Math.max(1, s.length() / 2);
-                }
+            JSONObject data = JSON.parseObject(text);
+            if (data.containsKey("content")) {
+                collectToken(data);
                 return;
             }
-            // done 事件（含 sources）
-            if (d.containsKey("sources")) {
-                Object srcs = d.get("sources");
-                if (srcs instanceof JSONArray ja) {
-                    for (Object o : ja) {
-                        if (o instanceof Map) {
-                            //noinspection unchecked
-                            sources.add(new LinkedHashMap<>((Map<String, Object>) o));
-                        } else if (o instanceof JSONObject jo) {
-                            sources.add(new LinkedHashMap<>(jo));
-                        }
-                    }
-                }
+            if (data.containsKey("error") || looksLikeErrorMessage(data)) {
+                Object msg = data.getOrDefault("error", data.get("message"));
+                if (msg != null) errors.add(String.valueOf(msg));
+            }
+            if (data.containsKey("intentType") && data.containsKey("queryVariants")) {
+                queryPlan.clear();
+                queryPlan.putAll(data);
+                Object intent = data.get("intentType");
+                if (intent != null) intentType = String.valueOf(intent);
                 return;
             }
-            // rewrite 事件 · 估算 input tokens
-            if (d.containsKey("original")) {
-                inputTokens += Math.max(1, String.valueOf(d.get("original")).length() / 2);
+            if (data.containsKey("sources") || data.containsKey("retrievalLog") || data.containsKey("traceId")) {
+                donePayload.clear();
+                donePayload.putAll(data);
+                collectSources(data.get("sources"));
+                collectRetrievalLog(data.get("retrievalLog"));
+                collectAgentTrace(data.get("agentTrace"));
+                collectDoneFields(data);
+                return;
             }
-        } catch (Exception ignored) {}
+            if (data.containsKey("original")) {
+                inputTokens += Math.max(1, String.valueOf(data.get("original")).length() / 2);
+            }
+        } catch (Exception ignored) {
+            // Ignore non-Agent JSON payloads.
+        }
+    }
+
+    private void collectToken(JSONObject data) {
+        Object content = data.get("content");
+        if (content == null) return;
+        String token = content.toString();
+        answerBuf.append(token);
+        outputTokens += Math.max(1, token.length() / 2);
+    }
+
+    private void collectSources(Object rawSources) {
+        if (!(rawSources instanceof JSONArray array)) return;
+        sources.clear();
+        for (Object item : array) {
+            if (item instanceof Map) {
+                //noinspection unchecked
+                sources.add(new LinkedHashMap<>((Map<String, Object>) item));
+            } else if (item instanceof JSONObject object) {
+                sources.add(new LinkedHashMap<>(object));
+            }
+        }
+    }
+
+    private void collectRetrievalLog(Object rawLog) {
+        if (rawLog instanceof JSONObject object) {
+            retrievalLog.clear();
+            retrievalLog.putAll(object);
+        } else if (rawLog instanceof Map<?, ?> map) {
+            retrievalLog.clear();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                retrievalLog.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+    }
+
+    private void collectAgentTrace(Object rawTrace) {
+        if (!(rawTrace instanceof JSONArray array)) return;
+        agentTrace.clear();
+        for (Object item : array) {
+            if (item instanceof JSONObject object) {
+                agentTrace.add(new LinkedHashMap<>(object));
+            } else if (item instanceof Map) {
+                //noinspection unchecked
+                agentTrace.add(new LinkedHashMap<>((Map<String, Object>) item));
+            }
+        }
+    }
+
+    private void collectDoneFields(JSONObject data) {
+        Object cid = data.get("conversationId");
+        if (cid instanceof Number number) {
+            conversationId = number.longValue();
+        } else if (cid != null) {
+            try {
+                conversationId = Long.parseLong(String.valueOf(cid));
+            } catch (NumberFormatException ignored) {
+                // leave null
+            }
+        }
+        Object traceValue = data.get("traceId");
+        if (traceValue != null) traceId = String.valueOf(traceValue);
+        Object intent = data.get("intentType");
+        if (intent != null) intentType = String.valueOf(intent);
+        Object fallbackValue = data.get("isFallback");
+        if (fallbackValue instanceof Boolean value) fallback = value;
+        Object emergencyValue = data.get("isEmergency");
+        if (emergencyValue instanceof Boolean value) emergency = value;
+        Object reflectionValue = data.get("reflectionPassed");
+        if (reflectionValue instanceof Boolean value) reflectionPassed = value;
+    }
+
+    private boolean looksLikeErrorMessage(JSONObject data) {
+        Object message = data.get("message");
+        if (message == null) return false;
+        String text = String.valueOf(message);
+        return text.contains("失败") || text.contains("异常") || text.toLowerCase().contains("error");
     }
 
     public String getAnswer() {

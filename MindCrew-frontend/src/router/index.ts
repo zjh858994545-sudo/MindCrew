@@ -42,6 +42,13 @@ const router = createRouter({
           component: () => import('@/views/chat/ChatView.vue'),
           meta: { title: '智能问答', icon: 'ChatDotRound' }
         },
+        // 企业知识服务台 · 真实业务闭环
+        {
+          path: 'service-desk',
+          name: 'ServiceDesk',
+          component: () => import('@/views/admin/ServiceDeskView.vue'),
+          meta: { title: '服务台闭环', icon: 'ChatLineSquare', requiresAdmin: true }
+        },
         // Multi-Agent 调研引擎
         {
           path: 'crew',

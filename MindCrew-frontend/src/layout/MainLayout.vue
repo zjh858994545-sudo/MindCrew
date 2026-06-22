@@ -174,6 +174,7 @@ const menuGroups: MenuGroup[] = [
     title: '工作台',
     items: [
       { path: '/chat',      label: '智能问答',    icon: 'ChatDotRound', color: '#3D5AFE' },
+      { path: '/service-desk', label: '服务台闭环', icon: 'ChatLineSquare', color: '#0EA5E9', requiresAdmin: true, badge: 'NEW' },
       { path: '/crew',      label: 'Agent 调研',  icon: 'MagicStick',   color: '#7C3AED', badge: 'NEW' },
       { path: '/coach',      label: '教练模式',    icon: 'Trophy',       color: '#7C3AED', badge: 'NEW' },
       { path: '/voice-call', label: '语音通话',    icon: 'PhoneFilled',  color: '#10B981', badge: 'NEW' },

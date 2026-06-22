@@ -1,7 +1,13 @@
 package com.simon.MindCrew.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.simon.MindCrew.entity.RagEvalCase;
+import com.simon.MindCrew.entity.RagEvalDataset;
+import com.simon.MindCrew.mapper.RagEvalCaseMapper;
+import com.simon.MindCrew.mapper.RagEvalDatasetMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -31,15 +37,24 @@ public class RagEvalService {
     private static final int VECTOR_DIM = 64;
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[\\p{IsHan}A-Za-z0-9_@./:-]+");
     private static final Path REPORT_PATH = Path.of("target", "rag-eval", "evaluation_report.json");
+    private static final String SERVICE_DESK_DATASET_NAME = "MindCrew Service Desk Golden Pairs";
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final AtomicReference<EvaluationReport> latestReport = new AtomicReference<>();
 
+    @Autowired(required = false)
+    private RagEvalDatasetMapper datasetMapper;
+
+    @Autowired(required = false)
+    private RagEvalCaseMapper caseMapper;
+
     public List<EvalCase> listCases(boolean includeSecurity) {
-        if (includeSecurity) {
-            return GOLDEN_CASES;
+        List<EvalCase> cases = new ArrayList<>(GOLDEN_CASES);
+        cases.addAll(loadDynamicCases());
+        if (!includeSecurity) {
+            cases = cases.stream().filter(c -> !c.shouldRefuse()).toList();
         }
-        return GOLDEN_CASES.stream().filter(c -> !c.shouldRefuse()).toList();
+        return cases;
     }
 
     public List<String> listStrategies() {
@@ -60,13 +75,14 @@ public class RagEvalService {
         boolean includeSecurity = request.includeSecurity() == null || request.includeSecurity();
         List<String> strategies = normalizeStrategies(request.strategies());
         List<EvalCase> cases = listCases(includeSecurity);
+        List<EvalDocument> documents = documentsFor(cases);
 
-        log.info("[RagEval] start cases={} strategies={} topK={}", cases.size(), strategies, topK);
+        log.info("[RagEval] start cases={} docs={} strategies={} topK={}", cases.size(), documents.size(), strategies, topK);
 
         List<StrategyReport> strategyReports = new ArrayList<>();
         for (String strategy : strategies) {
             List<CaseResult> results = cases.stream()
-                    .map(evalCase -> evaluateCase(evalCase, strategy, topK))
+                    .map(evalCase -> evaluateCase(evalCase, strategy, topK, documents))
                     .toList();
             strategyReports.add(new StrategyReport(strategy, summarize(results), results));
         }
@@ -78,7 +94,7 @@ public class RagEvalService {
                 LocalDateTime.now().toString(),
                 topK,
                 cases.size(),
-                DOCUMENTS.size(),
+                documents.size(),
                 REPORT_PATH.toString().replace('\\', '/'),
                 strategyReports,
                 System.currentTimeMillis() - started
@@ -90,7 +106,55 @@ public class RagEvalService {
         return report;
     }
 
-    private CaseResult evaluateCase(EvalCase evalCase, String strategy, int topK) {
+    public Long upsertServiceDeskGoldenPairCase(Long goldenPairId,
+                                                String question,
+                                                String expectedAnswer,
+                                                String category,
+                                                String sourceSummary,
+                                                Long createdBy) {
+        if (caseMapper == null || datasetMapper == null) {
+            log.debug("[RagEval] skip dynamic case persistence because mappers are unavailable.");
+            return null;
+        }
+        if (question == null || question.isBlank() || expectedAnswer == null || expectedAnswer.isBlank()) {
+            throw new IllegalArgumentException("question and expectedAnswer are required");
+        }
+
+        RagEvalDataset dataset = ensureServiceDeskDataset(createdBy);
+        RagEvalCase evalCase = caseMapper.selectOne(new LambdaQueryWrapper<RagEvalCase>()
+                .eq(RagEvalCase::getDatasetId, dataset.getId())
+                .eq(RagEvalCase::getQuestion, question.trim())
+                .last("LIMIT 1"));
+
+        if (evalCase == null) {
+            evalCase = new RagEvalCase();
+            evalCase.setDatasetId(dataset.getId());
+            evalCase.setQuestion(question.trim());
+            evalCase.setExpectedAnswer(expectedAnswer.trim());
+            evalCase.setExpectedKeywords(buildExpectedKeywords(category, sourceSummary));
+            evalCase.setCategory(normalizeCategory(category));
+            evalCase.setDifficulty("medium");
+            evalCase.setShouldRefuse(0);
+            caseMapper.insert(evalCase);
+            evalCase.setExpectedChunkIds(dynamicDocId(evalCase.getId()));
+            caseMapper.updateById(evalCase);
+        } else {
+            evalCase.setExpectedAnswer(expectedAnswer.trim());
+            evalCase.setExpectedChunkIds(dynamicDocId(evalCase.getId()));
+            evalCase.setExpectedKeywords(buildExpectedKeywords(category, sourceSummary));
+            evalCase.setCategory(normalizeCategory(category));
+            evalCase.setDifficulty("medium");
+            evalCase.setShouldRefuse(0);
+            caseMapper.updateById(evalCase);
+        }
+
+        latestReport.set(null);
+        log.info("[RagEval] service desk Golden Pair synced to eval case caseId={} pairId={}",
+                evalCase.getId(), goldenPairId);
+        return evalCase.getId();
+    }
+
+    private CaseResult evaluateCase(EvalCase evalCase, String strategy, int topK, List<EvalDocument> documents) {
         long started = System.currentTimeMillis();
         SafetyDecision safety = checkSafety(evalCase.question());
         if (safety.blocked()) {
@@ -109,11 +173,11 @@ public class RagEvalService {
         }
 
         List<ScoredDocument> ranked = switch (strategy) {
-            case "VECTOR_ONLY" -> rankVector(evalCase.question());
-            case "BM25_ONLY" -> rankBm25(evalCase.question());
-            case "HYBRID" -> rankHybrid(evalCase.question(), false);
-            case "HYBRID_RERANK" -> rankHybrid(evalCase.question(), true);
-            default -> rankHybrid(evalCase.question(), true);
+            case "VECTOR_ONLY" -> rankVector(evalCase.question(), documents);
+            case "BM25_ONLY" -> rankBm25(evalCase.question(), documents);
+            case "HYBRID" -> rankHybrid(evalCase.question(), false, documents);
+            case "HYBRID_RERANK" -> rankHybrid(evalCase.question(), true, documents);
+            default -> rankHybrid(evalCase.question(), true, documents);
         };
 
         List<ScoredDocument> topDocs = ranked.stream().limit(topK).toList();
@@ -164,29 +228,29 @@ public class RagEvalService {
         return new Metrics(round(recall), hit, round(firstRank), hit);
     }
 
-    private List<ScoredDocument> rankVector(String query) {
+    private List<ScoredDocument> rankVector(String query, List<EvalDocument> documents) {
         double[] qv = vectorize(tokenize(query));
-        return DOCUMENTS.stream()
+        return documents.stream()
                 .map(doc -> new ScoredDocument(doc.id(), doc.title(), doc.content(),
                         cosine(qv, vectorize(tokenize(doc.content() + " " + doc.title()))), "VECTOR"))
                 .sorted(Comparator.comparingDouble(ScoredDocument::score).reversed())
                 .toList();
     }
 
-    private List<ScoredDocument> rankBm25(String query) {
+    private List<ScoredDocument> rankBm25(String query, List<EvalDocument> documents) {
         List<String> qTokens = tokenize(query);
         Map<String, Integer> docFreq = new HashMap<>();
-        List<List<String>> docTokens = DOCUMENTS.stream()
+        List<List<String>> docTokens = documents.stream()
                 .map(doc -> tokenize(doc.title() + " " + doc.content()))
                 .toList();
         for (List<String> tokens : docTokens) {
             new LinkedHashSet<>(tokens).forEach(t -> docFreq.merge(t, 1, Integer::sum));
         }
         double avgLen = docTokens.stream().mapToInt(List::size).average().orElse(1);
-        int n = DOCUMENTS.size();
+        int n = documents.size();
         List<ScoredDocument> scored = new ArrayList<>();
-        for (int i = 0; i < DOCUMENTS.size(); i++) {
-            EvalDocument doc = DOCUMENTS.get(i);
+        for (int i = 0; i < documents.size(); i++) {
+            EvalDocument doc = documents.get(i);
             List<String> tokens = docTokens.get(i);
             Map<String, Long> tf = tokens.stream().collect(Collectors.groupingBy(t -> t, Collectors.counting()));
             double score = 0;
@@ -207,10 +271,10 @@ public class RagEvalService {
                 .toList();
     }
 
-    private List<ScoredDocument> rankHybrid(String query, boolean rerank) {
-        Map<String, Integer> vectorRank = rankMap(rankVector(query));
-        Map<String, Integer> bm25Rank = rankMap(rankBm25(query));
-        List<ScoredDocument> fused = DOCUMENTS.stream().map(doc -> {
+    private List<ScoredDocument> rankHybrid(String query, boolean rerank, List<EvalDocument> documents) {
+        Map<String, Integer> vectorRank = rankMap(rankVector(query, documents));
+        Map<String, Integer> bm25Rank = rankMap(rankBm25(query, documents));
+        List<ScoredDocument> fused = documents.stream().map(doc -> {
             double score = 0;
             Integer vr = vectorRank.get(doc.id());
             Integer br = bm25Rank.get(doc.id());
@@ -345,6 +409,106 @@ public class RagEvalService {
 
     private double round(double value) {
         return Math.round(value * 10000.0) / 10000.0;
+    }
+
+    private RagEvalDataset ensureServiceDeskDataset(Long createdBy) {
+        RagEvalDataset existing = datasetMapper.selectOne(new LambdaQueryWrapper<RagEvalDataset>()
+                .eq(RagEvalDataset::getName, SERVICE_DESK_DATASET_NAME)
+                .last("LIMIT 1"));
+        if (existing != null) {
+            return existing;
+        }
+        RagEvalDataset dataset = new RagEvalDataset();
+        dataset.setName(SERVICE_DESK_DATASET_NAME);
+        dataset.setDescription("Accepted service desk Golden Pair answers generated by MindCrew.");
+        dataset.setCreatedBy(createdBy);
+        datasetMapper.insert(dataset);
+        return dataset;
+    }
+
+    private List<EvalCase> loadDynamicCases() {
+        if (caseMapper == null) {
+            return List.of();
+        }
+        try {
+            return caseMapper.selectList(new LambdaQueryWrapper<RagEvalCase>()
+                            .orderByDesc(RagEvalCase::getCreateTime)
+                            .last("LIMIT 200"))
+                    .stream()
+                    .map(this::toEvalCase)
+                    .toList();
+        } catch (Exception ex) {
+            log.debug("[RagEval] skip dynamic cases: {}", ex.getMessage());
+            return List.of();
+        }
+    }
+
+    private EvalCase toEvalCase(RagEvalCase entity) {
+        String docId = entity.getExpectedChunkIds();
+        if (docId == null || docId.isBlank()) {
+            docId = dynamicDocId(entity.getId());
+        }
+        return new EvalCase(
+                "db_case_" + entity.getId(),
+                entity.getQuestion(),
+                entity.getExpectedAnswer(),
+                splitCsv(docId),
+                splitCsv(entity.getExpectedKeywords()),
+                entity.getCategory() == null ? "dynamic" : entity.getCategory(),
+                entity.getDifficulty() == null ? "medium" : entity.getDifficulty(),
+                Integer.valueOf(1).equals(entity.getShouldRefuse())
+        );
+    }
+
+    private List<EvalDocument> documentsFor(List<EvalCase> cases) {
+        List<EvalDocument> docs = new ArrayList<>(DOCUMENTS);
+        for (EvalCase evalCase : cases) {
+            if (!evalCase.id().startsWith("db_case_") || evalCase.expectedChunkIds().isEmpty()) {
+                continue;
+            }
+            String docId = evalCase.expectedChunkIds().get(0);
+            docs.add(new EvalDocument(docId,
+                    "Dynamic Golden Pair / " + evalCase.category(),
+                    evalCase.question() + "\n" + evalCase.expectedAnswer()));
+        }
+        return docs;
+    }
+
+    private String buildExpectedKeywords(String category, String sourceSummary) {
+        LinkedHashSet<String> keywords = new LinkedHashSet<>();
+        if (category != null && !category.isBlank()) {
+            keywords.add(category.trim().toLowerCase(Locale.ROOT));
+        }
+        if (sourceSummary != null) {
+            Matcher matcher = TOKEN_PATTERN.matcher(sourceSummary);
+            while (matcher.find() && keywords.size() < 8) {
+                String token = matcher.group();
+                if (token.length() >= 3 && token.length() <= 40) {
+                    keywords.add(token.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return String.join(",", keywords);
+    }
+
+    private String normalizeCategory(String category) {
+        return category == null || category.isBlank()
+                ? "service_desk"
+                : "service_desk_" + category.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String dynamicDocId(Long caseId) {
+        return "rag_case_" + caseId;
+    }
+
+    private static List<String> splitCsv(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return List.of(value.split(",")).stream()
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
     }
 
     private record Metrics(double recallAtK, double hitAtK, double mrr, double citationHit) {}

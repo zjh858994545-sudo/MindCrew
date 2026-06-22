@@ -73,7 +73,7 @@ public class VectorRetriever {
             for (SearchResultsWrapper.IDScore score : scores) {
                 int idx = results.size();
                 RetrievedChunk chunk = new RetrievedChunk();
-                chunk.setId(score.getLongID() + "");
+                chunk.setId(scoreId(score));
                 chunk.setScore((float) score.getScore());
                 chunk.setContent(getFieldValue(wrapper, "content", idx));
                 chunk.setCategory(getFieldValue(wrapper, "category", idx));
@@ -140,5 +140,15 @@ public class VectorRetriever {
             }
         } catch (Exception ignored) {}
         return "";
+    }
+
+    private String scoreId(SearchResultsWrapper.IDScore score) {
+        try {
+            String id = score.getStrID();
+            if (id != null && !id.isBlank()) {
+                return id;
+            }
+        } catch (Exception ignored) {}
+        return String.valueOf(score.getLongID());
     }
 }
