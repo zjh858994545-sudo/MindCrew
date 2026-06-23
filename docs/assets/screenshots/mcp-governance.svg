@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      .bg{fill:#f6f9ff}.panel{fill:#fff;stroke:#e0e8f3;stroke-width:1.2;rx:10}
+      .h{font:700 28px Arial,'Microsoft YaHei';fill:#152033}.p{font:400 15px Arial,'Microsoft YaHei';fill:#66758b}
+      .s{font:700 15px Arial,'Microsoft YaHei';fill:#26364d}.tiny{font:400 12px Arial,'Microsoft YaHei';fill:#7c8ba0}
+      .allow{fill:#dcfce7;stroke:#86efac;rx:999}.deny{fill:#fee2e2;stroke:#fca5a5;rx:999}.limit{fill:#fff7ed;stroke:#fdba74;rx:999}
+    </style>
+  </defs>
+  <rect width="1200" height="760" class="bg"/>
+  <text x="60" y="64" class="h">MCP 权限治理</text>
+  <text x="60" y="94" class="p">client/tool policy、rate limit、audit log 控制 Agent 工具调用风险</text>
+
+  <rect x="60" y="135" width="330" height="545" class="panel"/>
+  <text x="88" y="174" class="s">工具策略</text>
+  <rect x="88" y="210" width="270" height="76" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="110" y="238" class="s">doc_search</text>
+  <rect x="250" y="218" width="72" height="24" class="allow"/>
+  <text x="270" y="235" class="tiny">ALLOW</text>
+  <text x="110" y="264" class="tiny">每分钟 120 次 · 知识检索</text>
+  <rect x="88" y="310" width="270" height="76" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="110" y="338" class="s">web_search</text>
+  <rect x="250" y="318" width="72" height="24" class="limit"/>
+  <text x="272" y="335" class="tiny">LIMIT</text>
+  <text x="110" y="364" class="tiny">每分钟 20 次 · 需要审计</text>
+  <rect x="88" y="410" width="270" height="76" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="110" y="438" class="s">admin_shell</text>
+  <rect x="250" y="418" width="72" height="24" class="deny"/>
+  <text x="274" y="435" class="tiny">DENY</text>
+  <text x="110" y="464" class="tiny">默认拒绝高危工具</text>
+
+  <rect x="430" y="135" width="710" height="545" class="panel"/>
+  <text x="460" y="174" class="s">审计日志</text>
+  <rect x="460" y="210" width="640" height="54" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="482" y="242" class="s">client=service-desk-agent</text>
+  <text x="730" y="242" class="tiny">tool=doc_search · action=ALLOW · 18 ms</text>
+  <rect x="460" y="284" width="640" height="54" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="482" y="316" class="s">client=mindcrew-agent</text>
+  <text x="730" y="316" class="tiny">tool=web_search · action=RATE_LIMIT · 0 ms</text>
+  <rect x="460" y="358" width="640" height="54" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="482" y="390" class="s">client=unknown-client</text>
+  <text x="730" y="390" class="tiny">tool=admin_shell · action=DENY · policy mismatch</text>
+
+  <rect x="460" y="470" width="190" height="105" rx="10" fill="#eef5ff" stroke="#c8dafa"/>
+  <text x="490" y="508" class="tiny">今日调用</text>
+  <text x="490" y="548" style="font:700 34px Arial;fill:#2563eb">1,284</text>
+  <rect x="685" y="470" width="190" height="105" rx="10" fill="#f0fdfa" stroke="#b7eee2"/>
+  <text x="715" y="508" class="tiny">允许率</text>
+  <text x="715" y="548" style="font:700 34px Arial;fill:#0f766e">96.8%</text>
+  <rect x="910" y="470" width="190" height="105" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+  <text x="940" y="508" class="tiny">限流/拒绝</text>
+  <text x="940" y="548" style="font:700 34px Arial;fill:#c2410c">41</text>
+</svg>

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      .bg{fill:#f6f9ff}.panel{fill:#fff;stroke:#e0e8f3;stroke-width:1.2;rx:10}
+      .h{font:700 28px Arial,'Microsoft YaHei';fill:#152033}.p{font:400 15px Arial,'Microsoft YaHei';fill:#66758b}
+      .s{font:700 15px Arial,'Microsoft YaHei';fill:#26364d}.tiny{font:400 12px Arial,'Microsoft YaHei';fill:#7c8ba0}
+      .ok{fill:#dcfce7;stroke:#86efac;rx:999}.warn{fill:#fff7ed;stroke:#fdba74;rx:999}
+      .line{stroke:#d6e1ef;stroke-width:3}
+    </style>
+  </defs>
+  <rect width="1200" height="760" class="bg"/>
+  <text x="60" y="64" class="h">Agent Trace</text>
+  <text x="60" y="94" class="p">通过 traceId 定位一次 Agent 问答的执行链路</text>
+
+  <rect x="60" y="135" width="330" height="545" class="panel"/>
+  <text x="88" y="174" class="s">Trace 列表</text>
+  <rect x="88" y="205" width="270" height="90" rx="8" fill="#eef5ff" stroke="#b8cff8"/>
+  <circle cx="110" cy="232" r="5" fill="#16a34a"/>
+  <text x="126" y="234" class="s">trace-7f654328</text>
+  <text x="126" y="260" class="tiny">客户要求导出全量原始日志</text>
+  <text x="126" y="282" class="tiny">1240 ms · OK</text>
+  <rect x="88" y="315" width="270" height="90" rx="8" fill="#fff" stroke="#e0e8f3"/>
+  <circle cx="110" cy="342" r="5" fill="#f59e0b"/>
+  <text x="126" y="344" class="s">trace-3c58a992</text>
+  <text x="126" y="370" class="tiny">VPN 登录失败如何处理</text>
+  <text x="126" y="392" class="tiny">860 ms · NEEDS_REVIEW</text>
+
+  <rect x="430" y="135" width="710" height="545" class="panel"/>
+  <text x="460" y="174" class="s">Span 时间线</text>
+  <line x1="500" y1="230" x2="500" y2="612" class="line"/>
+  <g transform="translate(470,210)">
+    <circle cx="30" cy="20" r="10" fill="#2563eb"/>
+    <text x="60" y="18" class="s">SAFETY_CHECK · user_input</text>
+    <rect x="520" y="0" width="58" height="24" class="ok"/>
+    <text x="538" y="17" class="tiny">OK</text>
+    <text x="60" y="43" class="tiny">输入安全检查，未命中 Prompt Injection 规则 · 18 ms</text>
+  </g>
+  <g transform="translate(470,290)">
+    <circle cx="30" cy="20" r="10" fill="#2563eb"/>
+    <text x="60" y="18" class="s">QUERY_PLANNER · intent / HyDE / retry</text>
+    <rect x="520" y="0" width="58" height="24" class="ok"/>
+    <text x="538" y="17" class="tiny">OK</text>
+    <text x="60" y="43" class="tiny">intent=knowledge_query，variants=4，retryPolicy=enabled</text>
+  </g>
+  <g transform="translate(470,370)">
+    <circle cx="30" cy="20" r="10" fill="#2563eb"/>
+    <text x="60" y="18" class="s">VECTOR_RETRIEVAL + BM25_RETRIEVAL</text>
+    <rect x="520" y="0" width="58" height="24" class="ok"/>
+    <text x="538" y="17" class="tiny">OK</text>
+    <text x="60" y="43" class="tiny">Milvus TopK + MySQL Fulltext，命中安全合规 SOP</text>
+  </g>
+  <g transform="translate(470,450)">
+    <circle cx="30" cy="20" r="10" fill="#2563eb"/>
+    <text x="60" y="18" class="s">RRF_FUSION + RERANK</text>
+    <rect x="520" y="0" width="58" height="24" class="ok"/>
+    <text x="538" y="17" class="tiny">OK</text>
+    <text x="60" y="43" class="tiny">融合向量和关键词结果，重排后保留高置信证据</text>
+  </g>
+  <g transform="translate(470,530)">
+    <circle cx="30" cy="20" r="10" fill="#2563eb"/>
+    <text x="60" y="18" class="s">LLM_GENERATION · stream_generation</text>
+    <rect x="520" y="0" width="58" height="24" class="ok"/>
+    <text x="538" y="17" class="tiny">OK</text>
+    <text x="60" y="43" class="tiny">基于引用证据生成服务台答复草稿 · 742 ms</text>
+  </g>
+</svg>

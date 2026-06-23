@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9ff"/>
+      <stop offset="1" stop-color="#edf5ff"/>
+    </linearGradient>
+    <style>
+      .panel{fill:#fff;stroke:#e0e8f3;stroke-width:1.2;rx:10}
+      .nav{fill:#172033}
+      .h{font:700 28px Arial,'Microsoft YaHei',sans-serif;fill:#152033}
+      .p{font:400 15px Arial,'Microsoft YaHei',sans-serif;fill:#66758b}
+      .s{font:600 14px Arial,'Microsoft YaHei',sans-serif;fill:#26364d}
+      .tiny{font:400 12px Arial,'Microsoft YaHei',sans-serif;fill:#7c8ba0}
+      .blue{fill:#eef5ff;stroke:#bdd4fb;rx:8}
+      .green{fill:#edf9f1;stroke:#b8e7c7;rx:8}
+      .yellow{fill:#fff8e5;stroke:#f0d98b;rx:8}
+      .btn{fill:#2563eb;rx:8}
+      .btnText{font:700 14px Arial,'Microsoft YaHei',sans-serif;fill:#fff}
+    </style>
+  </defs>
+  <rect width="1200" height="760" fill="url(#bg)"/>
+  <rect x="0" y="0" width="210" height="760" class="nav"/>
+  <text x="32" y="56" style="font:700 26px Arial,'Microsoft YaHei';fill:#fff">MindCrew</text>
+  <text x="34" y="120" style="font:600 14px Arial,'Microsoft YaHei';fill:#9fb2cc">智能问答</text>
+  <text x="34" y="164" style="font:600 14px Arial,'Microsoft YaHei';fill:#9fb2cc">知识库</text>
+  <rect x="18" y="190" width="174" height="42" rx="8" fill="#2f6fed"/>
+  <text x="34" y="216" style="font:700 14px Arial,'Microsoft YaHei';fill:#fff">服务台闭环</text>
+  <text x="34" y="272" style="font:600 14px Arial,'Microsoft YaHei';fill:#9fb2cc">RAG 评测</text>
+  <text x="34" y="316" style="font:600 14px Arial,'Microsoft YaHei';fill:#9fb2cc">Agent Trace</text>
+  <text x="34" y="360" style="font:600 14px Arial,'Microsoft YaHei';fill:#9fb2cc">MCP 控制台</text>
+
+  <text x="250" y="62" class="h">企业知识服务台</text>
+  <text x="250" y="92" class="p">工单接入、AI 草稿、人工确认、反馈沉淀</text>
+  <rect x="830" y="42" width="128" height="38" class="btn"/>
+  <text x="858" y="66" class="btnText">新建工单</text>
+  <rect x="970" y="42" width="150" height="38" class="blue"/>
+  <text x="991" y="66" class="s">重建知识向量</text>
+
+  <g transform="translate(250,125)">
+    <rect width="200" height="82" class="panel"/>
+    <text x="22" y="32" class="tiny">总工单</text>
+    <text x="22" y="62" style="font:700 30px Arial;fill:#1f2a44">6</text>
+  </g>
+  <g transform="translate(470,125)">
+    <rect width="200" height="82" class="panel"/>
+    <text x="22" y="32" class="tiny">待复核</text>
+    <text x="22" y="62" style="font:700 30px Arial;fill:#d97706">2</text>
+  </g>
+  <g transform="translate(690,125)">
+    <rect width="200" height="82" class="panel"/>
+    <text x="22" y="32" class="tiny">Golden Pair</text>
+    <text x="22" y="62" style="font:700 30px Arial;fill:#16a34a">3</text>
+  </g>
+  <g transform="translate(910,125)">
+    <rect width="200" height="82" class="panel"/>
+    <text x="22" y="32" class="tiny">知识缺口</text>
+    <text x="22" y="62" style="font:700 30px Arial;fill:#dc2626">1</text>
+  </g>
+
+  <rect x="250" y="235" width="330" height="455" class="panel"/>
+  <text x="275" y="270" class="s">工单队列</text>
+  <rect x="275" y="296" width="280" height="92" class="yellow"/>
+  <text x="295" y="322" class="s">MC-SD-2026-0005</text>
+  <text x="295" y="348" class="p">客户要求导出全量原始日志</text>
+  <text x="295" y="372" class="tiny">SECURITY · P1 · 待人工复核</text>
+  <rect x="275" y="405" width="280" height="92" class="blue"/>
+  <text x="295" y="431" class="s">MC-SD-2026-0002</text>
+  <text x="295" y="457" class="p">VPN 登录失败如何处理</text>
+  <text x="295" y="481" class="tiny">IT · P2 · 已生成草稿</text>
+  <rect x="275" y="514" width="280" height="92" class="green"/>
+  <text x="295" y="540" class="s">MC-SD-2026-0001</text>
+  <text x="295" y="566" class="p">年假结余和审批流程</text>
+  <text x="295" y="590" class="tiny">HR · P2 · 已采纳</text>
+
+  <rect x="610" y="235" width="510" height="210" class="panel"/>
+  <text x="635" y="270" class="s">业务问题</text>
+  <text x="635" y="310" class="p">客户要求我们邮件发送全量原始日志，是否可以直接导出？</text>
+  <text x="635" y="344" class="tiny">期望结果：给出安全合规口径、审批链路和可执行步骤</text>
+  <rect x="635" y="378" width="112" height="28" class="blue"/>
+  <text x="654" y="397" class="tiny">SECURITY</text>
+  <rect x="760" y="378" width="80" height="28" class="yellow"/>
+  <text x="784" y="397" class="tiny">P1</text>
+
+  <rect x="610" y="465" width="510" height="225" class="panel"/>
+  <text x="635" y="500" class="s">AI 答复草稿</text>
+  <text x="928" y="500" style="font:600 13px Arial;fill:#2563eb">trace-7f654328</text>
+  <text x="635" y="538" class="p">结论：不能直接通过邮件发送全量原始日志。</text>
+  <text x="635" y="568" class="p">应按最小必要原则导出脱敏字段，经过数据负责人和安全审批。</text>
+  <text x="635" y="598" class="p">处理步骤：确认用途、限定时间范围、脱敏、生成受控下载链接。</text>
+  <rect x="635" y="628" width="195" height="36" class="btn"/>
+  <text x="681" y="651" class="btnText">采纳沉淀</text>
+  <rect x="850" y="628" width="150" height="36" class="yellow"/>
+  <text x="884" y="651" class="s">驳回补知识</text>
+</svg>

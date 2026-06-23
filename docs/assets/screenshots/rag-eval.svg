@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      .bg{fill:#f6f9ff}.panel{fill:#fff;stroke:#e0e8f3;stroke-width:1.2;rx:10}
+      .h{font:700 28px Arial,'Microsoft YaHei';fill:#152033}.p{font:400 15px Arial,'Microsoft YaHei';fill:#66758b}
+      .s{font:700 15px Arial,'Microsoft YaHei';fill:#26364d}.tiny{font:400 12px Arial,'Microsoft YaHei';fill:#7c8ba0}
+      .bar1{fill:#2563eb}.bar2{fill:#14b8a6}.bar3{fill:#f59e0b}.bar4{fill:#8b5cf6}
+      .btn{fill:#2563eb;rx:8}.btnText{font:700 14px Arial,'Microsoft YaHei';fill:#fff}
+    </style>
+  </defs>
+  <rect width="1200" height="760" class="bg"/>
+  <text x="60" y="64" class="h">RAG 评测</text>
+  <text x="60" y="94" class="p">Golden QA + 服务台动态 Case，多策略对比检索质量</text>
+  <rect x="980" y="42" width="140" height="40" class="btn"/>
+  <text x="1014" y="67" class="btnText">运行评测</text>
+
+  <rect x="60" y="130" width="250" height="100" class="panel"/>
+  <text x="88" y="168" class="tiny">Case 数量</text>
+  <text x="88" y="205" style="font:700 34px Arial;fill:#152033">31</text>
+  <text x="160" y="205" class="p">含动态服务台样本</text>
+  <rect x="335" y="130" width="250" height="100" class="panel"/>
+  <text x="363" y="168" class="tiny">Corpus Chunks</text>
+  <text x="363" y="205" style="font:700 34px Arial;fill:#152033">13</text>
+  <rect x="610" y="130" width="250" height="100" class="panel"/>
+  <text x="638" y="168" class="tiny">Best Strategy</text>
+  <text x="638" y="205" style="font:700 24px Arial;fill:#2563eb">HYBRID_RERANK</text>
+  <rect x="885" y="130" width="250" height="100" class="panel"/>
+  <text x="913" y="168" class="tiny">Report</text>
+  <text x="913" y="205" style="font:700 20px Arial;fill:#16a34a">evaluation_report.json</text>
+
+  <rect x="60" y="270" width="510" height="390" class="panel"/>
+  <text x="90" y="310" class="s">策略指标对比</text>
+  <line x1="110" y1="610" x2="520" y2="610" stroke="#d9e3f2"/>
+  <g transform="translate(125,350)">
+    <rect x="0" y="140" width="54" height="120" class="bar1"/>
+    <rect x="70" y="95" width="54" height="165" class="bar2"/>
+    <rect x="140" y="62" width="54" height="198" class="bar3"/>
+    <rect x="210" y="28" width="54" height="232" class="bar4"/>
+    <text x="-8" y="286" class="tiny">Vector</text>
+    <text x="68" y="286" class="tiny">BM25</text>
+    <text x="142" y="286" class="tiny">Hybrid</text>
+    <text x="200" y="286" class="tiny">Rerank</text>
+  </g>
+  <text x="380" y="358" class="tiny">Recall@K</text>
+  <text x="380" y="386" class="tiny">MRR</text>
+  <text x="380" y="414" class="tiny">CitationHit</text>
+  <text x="380" y="442" class="tiny">RefusalAccuracy</text>
+
+  <rect x="610" y="270" width="525" height="390" class="panel"/>
+  <text x="640" y="310" class="s">动态评测 Case</text>
+  <rect x="640" y="340" width="460" height="76" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="660" y="368" class="s">db_case_42 · service_desk_security</text>
+  <text x="660" y="394" class="p">客户要求导出全量原始日志，是否可以邮件发送？</text>
+  <rect x="640" y="435" width="460" height="76" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="660" y="463" class="s">golden_qa_安全合规</text>
+  <text x="660" y="489" class="p">生产权限申请是否需要审批和日志留存？</text>
+  <rect x="640" y="530" width="460" height="76" rx="8" fill="#f8fbff" stroke="#e0e8f3"/>
+  <text x="660" y="558" class="s">golden_qa_IT</text>
+  <text x="660" y="584" class="p">MFA 失败时如何处理账号登录问题？</text>
+</svg>
