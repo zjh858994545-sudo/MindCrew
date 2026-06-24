@@ -182,6 +182,7 @@ public class BM25Retriever {
             chunk.setId(String.valueOf(doc.chunk().getId()));
             chunk.setContent(doc.chunk().getContent());
             chunk.setKnowledgeBaseId(doc.chunk().getKbId());
+            chunk.setChunkIndex(doc.chunk().getChunkIndex());
             chunk.setScore((float) score);
             chunk.setRerankScore((float) score);
             chunk.setSource(RetrievedChunk.Source.BM25);

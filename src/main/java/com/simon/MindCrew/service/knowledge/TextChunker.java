@@ -149,6 +149,12 @@ public class TextChunker {
         private String contentType;
         private int pageNumber;
         private String chapter;
+        private String documentTitle;
+        private String documentSummary;
+        private List<String> keywords = List.of();
+        private List<String> answerableQuestions = List.of();
+        private String embeddingText;
+        private Integer qualityScore;
 
         // 音视频专用 · 时间戳级溯源
         private Long startMs;       // 起始毫秒
@@ -171,6 +177,18 @@ public class TextChunker {
         public void setPageNumber(int pageNumber) { this.pageNumber = pageNumber; }
         public String getChapter() { return chapter; }
         public void setChapter(String chapter) { this.chapter = chapter; }
+        public String getDocumentTitle() { return documentTitle; }
+        public void setDocumentTitle(String documentTitle) { this.documentTitle = documentTitle; }
+        public String getDocumentSummary() { return documentSummary; }
+        public void setDocumentSummary(String documentSummary) { this.documentSummary = documentSummary; }
+        public List<String> getKeywords() { return keywords; }
+        public void setKeywords(List<String> keywords) { this.keywords = keywords == null ? List.of() : keywords; }
+        public List<String> getAnswerableQuestions() { return answerableQuestions; }
+        public void setAnswerableQuestions(List<String> answerableQuestions) { this.answerableQuestions = answerableQuestions == null ? List.of() : answerableQuestions; }
+        public String getEmbeddingText() { return embeddingText; }
+        public void setEmbeddingText(String embeddingText) { this.embeddingText = embeddingText; }
+        public Integer getQualityScore() { return qualityScore; }
+        public void setQualityScore(Integer qualityScore) { this.qualityScore = qualityScore; }
         public Long getStartMs() { return startMs; }
         public void setStartMs(Long startMs) { this.startMs = startMs; }
         public Long getEndMs() { return endMs; }

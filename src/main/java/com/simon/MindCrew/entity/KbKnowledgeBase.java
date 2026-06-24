@@ -28,6 +28,12 @@ public class KbKnowledgeBase {
     /** LLM 生成的 100-200 字摘要 */
     private String summary;
 
+    /** 语义增强生成的可回答问题数组（JSON 字符串） */
+    private String answerableQuestions;
+
+    /** 文档清洗质量报告（JSON 字符串） */
+    private String qualityReport;
+
     /** 是否用户手动指定（1 = 锁定，AI 不再覆盖） */
     private Integer categoryUserSet;
 

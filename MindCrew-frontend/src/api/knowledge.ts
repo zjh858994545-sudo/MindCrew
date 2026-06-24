@@ -13,6 +13,11 @@ export interface KnowledgeBase {
   status: 'uploading' | 'processing' | 'ready' | 'failed'
   errorMsg: string
   createTime: string
+  tags?: string
+  summary?: string
+  answerableQuestions?: string
+  qualityReport?: string
+  categoryUserSet?: number
   /** 任务 7 · 可见性 */
   visibility?: 'public' | 'scoped' | 'private'
 }

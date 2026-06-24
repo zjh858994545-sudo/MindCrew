@@ -84,6 +84,7 @@ public class MindCrewAgent {
     private final QueryRewriter      queryRewriter;
     private final QueryPlannerService queryPlannerService;
     private final ContextCompressor  contextCompressor;
+    private final ContextWindowExpander contextWindowExpander;
     private final AiConfigHolder     aiConfigHolder;
     private final PromptAssembler    promptAssembler;
     private final com.simon.MindCrew.service.PersonaService personaService;
@@ -400,6 +401,15 @@ public class MindCrewAgent {
                 "candidates=" + (fused.size() + webPart.size()),
                 "reranked=" + reranked.size(), 0, "OK", null);
 
+        ContextWindowExpander.ExpansionResult expansion = contextWindowExpander.expand(reranked);
+        reranked = expansion.chunks();
+        if (expansion.addedChunks() > 0) {
+            agentTraceService.recordSpan(state.getTraceId(), "PARENT_CONTEXT_RECALL", "context_window_expansion",
+                    "reranked=" + (reranked.size() - expansion.addedChunks()),
+                    Map.of("addedChunks", expansion.addedChunks(), "parentDocuments", expansion.parentDocuments()),
+                    0, "OK", null);
+        }
+
         // 补全文档名
         enrichSourceNames(reranked);
 
@@ -413,8 +423,13 @@ public class MindCrewAgent {
         }
         state.setRetrievedChunks(compressed);
 
-        updateTrace(state, 4, "重排序后 " + reranked.size() + " 条，压缩后 " + compressed.size() + " 条");
-        sendSseEvent(emitter, "rerank", Map.of("topK", reranked.size(), "compressed", compressed.size()));
+        updateTrace(state, 4, "重排序后 " + reranked.size() + " 条，父子扩展 " + expansion.addedChunks()
+                + " 条，压缩后 " + compressed.size() + " 条");
+        sendSseEvent(emitter, "rerank", Map.of(
+                "topK", reranked.size(),
+                "parentContextAdded", expansion.addedChunks(),
+                "compressed", compressed.size()
+        ));
 
         // ===== Thought 5：安全检查 + Prompt 组装 =====
         addTrace(state, 5, "安全评估 & 组装 Prompt",

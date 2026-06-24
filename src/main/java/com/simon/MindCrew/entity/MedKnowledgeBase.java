@@ -21,6 +21,21 @@ public class MedKnowledgeBase {
 
     private String category;
 
+    /** LLM/规则提取的标签数组 JSON */
+    private String tags;
+
+    /** 文档摘要 */
+    private String summary;
+
+    /** 是否用户手动指定分类 */
+    private Integer categoryUserSet;
+
+    /** 文档可回答问题数组 JSON */
+    private String answerableQuestions;
+
+    /** 文档清洗质量报告 JSON */
+    private String qualityReport;
+
     private String fileUrl;
 
     private String fileType;

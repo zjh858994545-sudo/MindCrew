@@ -18,9 +18,11 @@
 ```powershell
 docker compose up -d mysql redis minio minio-init etcd milvus
 mysql -u root -p docmind < sql/docmind-init.sql
+mysql -u root -p docmind < sql/kb-category-schema.sql
 mysql -u root -p docmind < sql/rag-eval-schema.sql
 mysql -u root -p docmind < sql/agent-trace-safety-schema.sql
 mysql -u root -p docmind < sql/mcp-governance-schema.sql
+mysql -u root -p docmind < sql/rag-data-quality-metadata-schema.sql
 mysql -u root -p docmind < sql/service-desk-loop-schema.sql
 mvn spring-boot:run
 cd MindCrew-frontend
@@ -50,6 +52,20 @@ npm run build
 讲法：
 
 > 我把知识库问答抽象成企业服务台，因为真实业务里问题不是问完就结束，而是要经过审核、沉淀、评测和知识运营。
+
+### 1.5 知识库数据工程
+
+打开 `/knowledge`，选择任意已就绪文档查看详情。
+
+重点展示：
+
+- AI 摘要和标签。
+- 文档可回答问题。
+- 清洗质量报告：质量分、清洗前后字数、噪音行、重复行、最长切片。
+
+讲法：
+
+> 真实 RAG 项目的难点往往不在模型，而在数据质量。我在入库阶段记录清洗质量报告，并生成摘要、关键词和可回答问题，用来提升召回和可解释性。
 
 ### 2. Trace 跳转
 

@@ -34,6 +34,7 @@ public class RagPipeline {
     private final BM25Retriever bm25Retriever;
     private final RRFFusion rrfFusion;
     private final CrossEncoderReranker reranker;
+    private final ContextWindowExpander contextWindowExpander;
     private final PromptAssembler promptAssembler;
     private final SafetyGuard safetyGuard;
     private final MedConversationMapper conversationMapper;
@@ -128,6 +129,10 @@ public class RagPipeline {
             sendSseEvent(emitter, "rerank", Map.of("topK", topChunks.size()));
 
             // ===== Step 5.5: 批量补全文档名（knowledgeBaseId → sourceName）=====
+            ContextWindowExpander.ExpansionResult expansion = contextWindowExpander.expand(topChunks);
+            topChunks = expansion.chunks();
+            retrievalLog.put("parentContextAdded", expansion.addedChunks());
+            retrievalLog.put("parentContextDocuments", expansion.parentDocuments());
             enrichSourceNames(topChunks);
 
             // ===== Step 6: 置信度评估 =====

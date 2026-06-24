@@ -8,6 +8,8 @@ import com.simon.MindCrew.mapper.MedKnowledgeBaseMapper;
 import com.simon.MindCrew.service.DocumentClassifierService;
 import com.simon.MindCrew.service.knowledge.AudioTranscriber;
 import com.simon.MindCrew.service.knowledge.DocumentExtractor;
+import com.simon.MindCrew.service.knowledge.DocumentMetadataEnhancer;
+import com.simon.MindCrew.service.knowledge.DocumentQualityService;
 import com.simon.MindCrew.service.knowledge.FileStorageService;
 import com.simon.MindCrew.service.knowledge.MilvusService;
 import com.simon.MindCrew.service.knowledge.TextChunker;
@@ -47,6 +49,8 @@ public class DocumentProcessTask {
     private final WechatChatParser wechatChatParser;
     private final VideoProcessor videoProcessor;
     private final DocumentClassifierService classifier;
+    private final DocumentQualityService documentQualityService;
+    private final DocumentMetadataEnhancer documentMetadataEnhancer;
 
     @Value("${upload.path:uploads}")
     private String uploadPath;
@@ -84,6 +88,8 @@ public class DocumentProcessTask {
             boolean isWechat = isWechatChat(kb, filePath, fileType);
 
             List<TextChunker.TextChunk> chunks;
+            DocumentQualityService.CleanResult cleanResult = null;
+            DocumentMetadataEnhancer.SemanticMetadata semanticMetadata = null;
 
             if (isAudio) {
                 // ── 音频分支：上传 MinIO → 获取预签名 URL → 调 ASR → 每句话一个 chunk ──
@@ -101,12 +107,32 @@ public class DocumentProcessTask {
                 if (StringUtils.isBlank(text)) {
                     throw new RuntimeException("文档内容为空，请检查文件");
                 }
-                chunks = textChunker.chunk(text, knowledgeBaseId, kb.getCategory());
+                cleanResult = documentQualityService.cleanAndAnalyze(text, kb.getName());
+                if (StringUtils.isBlank(cleanResult.cleanedText())) {
+                    throw new RuntimeException("文档清洗后内容为空，请检查文件");
+                }
+                semanticMetadata = documentMetadataEnhancer.enhance(
+                        kb.getName(), kb.getCategory(), cleanResult.cleanedText());
+                chunks = textChunker.chunk(cleanResult.cleanedText(), knowledgeBaseId, kb.getCategory());
             }
 
             if (chunks.isEmpty()) {
                 throw new RuntimeException("文档切片结果为空");
             }
+
+            if (cleanResult == null) {
+                String joined = chunks.stream()
+                        .map(TextChunker.TextChunk::getContent)
+                        .filter(StringUtils::isNotBlank)
+                        .limit(200)
+                        .collect(java.util.stream.Collectors.joining("\n\n"));
+                cleanResult = documentQualityService.cleanAndAnalyze(joined, kb.getName());
+            }
+            if (semanticMetadata == null) {
+                semanticMetadata = documentMetadataEnhancer.enhance(
+                        kb.getName(), kb.getCategory(), cleanResult.cleanedText());
+            }
+            applySemanticMetadata(chunks, semanticMetadata, cleanResult.report());
 
             // 4. 同步写入 kb_chunk，供中文关键词/BM25 检索使用
             persistChunks(chunks);
@@ -119,6 +145,10 @@ public class DocumentProcessTask {
 
             // 7. 更新状态为 ready
             kb.setChunkCount(chunks.size());
+            kb.setSummary(semanticMetadata.summary());
+            kb.setTags(JSON.toJSONString(semanticMetadata.keywords()));
+            kb.setAnswerableQuestions(JSON.toJSONString(semanticMetadata.answerableQuestions()));
+            kb.setQualityReport(JSON.toJSONString(qualityReportMap(cleanResult.report(), chunks)));
             kb.setStatus("ready");
             kb.setErrorMsg(null);
             knowledgeBaseMapper.updateById(kb);
@@ -159,7 +189,10 @@ public class DocumentProcessTask {
 
             // Spring AI 1.0.0: EmbeddingModel.embed(String) 返回 float[]
             for (TextChunker.TextChunk chunk : batch) {
-                float[] raw = embeddingModel.embed(chunk.getContent());
+                String embeddingInput = StringUtils.isNotBlank(chunk.getEmbeddingText())
+                        ? chunk.getEmbeddingText()
+                        : chunk.getContent();
+                float[] raw = embeddingModel.embed(embeddingInput);
                 List<Float> floats = new java.util.ArrayList<>(raw.length);
                 for (float f : raw) floats.add(f);
                 allEmbeddings.add(floats);
@@ -187,12 +220,50 @@ public class DocumentProcessTask {
             if (chunk.getEndMs() != null) meta.put("endMs", chunk.getEndMs());
             if (chunk.getSpeakerId() != null) meta.put("speakerId", chunk.getSpeakerId());
             if (chunk.getSourceObjectName() != null) meta.put("sourceObjectName", chunk.getSourceObjectName());
+            if (chunk.getDocumentTitle() != null) meta.put("documentTitle", chunk.getDocumentTitle());
+            if (chunk.getDocumentSummary() != null) meta.put("documentSummary", chunk.getDocumentSummary());
+            if (chunk.getKeywords() != null && !chunk.getKeywords().isEmpty()) meta.put("keywords", chunk.getKeywords());
+            if (chunk.getAnswerableQuestions() != null && !chunk.getAnswerableQuestions().isEmpty()) {
+                meta.put("answerableQuestions", chunk.getAnswerableQuestions());
+            }
+            if (chunk.getQualityScore() != null) meta.put("qualityScore", chunk.getQualityScore());
 
             entity.setMetadata(JSON.toJSONString(meta));
             entity.setVectorId(null);
             kbChunkMapper.insert(entity);
         }
         log.info("kb_chunk 写入成功: {}条", chunks.size());
+    }
+
+    private void applySemanticMetadata(List<TextChunker.TextChunk> chunks,
+                                       DocumentMetadataEnhancer.SemanticMetadata semantic,
+                                       DocumentQualityService.QualityReport qualityReport) {
+        String prefix = semantic.embeddingPrefix();
+        for (TextChunker.TextChunk chunk : chunks) {
+            chunk.setDocumentTitle(semantic.title());
+            chunk.setDocumentSummary(semantic.summary());
+            chunk.setKeywords(semantic.keywords());
+            chunk.setAnswerableQuestions(semantic.answerableQuestions());
+            chunk.setQualityScore(qualityReport.qualityScore());
+            chunk.setEmbeddingText(prefix + "\n正文片段：\n" + chunk.getContent());
+        }
+    }
+
+    private Map<String, Object> qualityReportMap(DocumentQualityService.QualityReport report,
+                                                 List<TextChunker.TextChunk> chunks) {
+        int max = chunks.stream()
+                .map(TextChunker.TextChunk::getContent)
+                .filter(java.util.Objects::nonNull)
+                .mapToInt(String::length)
+                .max()
+                .orElse(0);
+        int avg = (int) chunks.stream()
+                .map(TextChunker.TextChunk::getContent)
+                .filter(java.util.Objects::nonNull)
+                .mapToInt(String::length)
+                .average()
+                .orElse(0);
+        return documentQualityService.toJsonMap(report, chunks.size(), max, avg);
     }
 
     /**

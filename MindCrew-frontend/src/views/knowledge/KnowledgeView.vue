@@ -378,6 +378,29 @@
             >#{{ t }}</el-tag>
           </span>
         </div>
+        <div v-if="parseJsonArray((currentDoc as any).answerableQuestions).length" class="detail-row span2">
+          <span class="detail-key">可回答问题</span>
+          <span class="detail-val question-list">
+            <span
+              v-for="q in parseJsonArray((currentDoc as any).answerableQuestions)"
+              :key="q"
+              class="question-chip"
+            >{{ q }}</span>
+          </span>
+        </div>
+        <div v-if="parseQualityReport((currentDoc as any).qualityReport)" class="detail-row span2">
+          <span class="detail-key">清洗质量报告</span>
+          <span class="detail-val quality-report">
+            <span class="quality-score" :class="qualityScoreClass(parseQualityReport((currentDoc as any).qualityReport)?.qualityScore)">
+              {{ parseQualityReport((currentDoc as any).qualityReport)?.qualityScore ?? '-' }} 分
+            </span>
+            <span>原文 {{ parseQualityReport((currentDoc as any).qualityReport)?.originalChars ?? 0 }} 字</span>
+            <span>清洗后 {{ parseQualityReport((currentDoc as any).qualityReport)?.cleanedChars ?? 0 }} 字</span>
+            <span>移除噪音 {{ parseQualityReport((currentDoc as any).qualityReport)?.noiseLinesRemoved ?? 0 }} 行</span>
+            <span>重复行 {{ parseQualityReport((currentDoc as any).qualityReport)?.duplicateLinesRemoved ?? 0 }}</span>
+            <span>最长切片 {{ parseQualityReport((currentDoc as any).qualityReport)?.maxChunkLength ?? 0 }} 字</span>
+          </span>
+        </div>
         <div class="detail-row span2" v-if="currentDoc.status === 'ready'">
           <span class="detail-key">操作</span>
           <span class="detail-val" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -981,6 +1004,32 @@ const parseTags = (raw: any): string[] => {
   } catch { return [] }
 }
 
+const parseJsonArray = (raw: any): string[] => {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.map(String)
+  try {
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return Array.isArray(arr) ? arr.map(String) : []
+  } catch { return [] }
+}
+
+const parseQualityReport = (raw: any): any | null => {
+  if (!raw) return null
+  if (typeof raw === 'object') return raw
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+const qualityScoreClass = (score?: number) => {
+  if (score == null) return 'score-mid'
+  if (score >= 85) return 'score-high'
+  if (score >= 65) return 'score-mid'
+  return 'score-low'
+}
+
 // 修改文档分类（锁定为用户手动）
 const changeDocCategory = async (kbId: number, code: string) => {
   try {
@@ -1423,6 +1472,54 @@ const formatDate = (d: string) => {
   gap: 5px;
 }
 .detail-key .el-icon { color: var(--ink-4); }
+
+.question-list,
+.quality-report {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.question-chip {
+  padding: 5px 8px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.06);
+  color: #1e3a8a;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.quality-report span {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.quality-report .quality-score {
+  font-weight: 700;
+}
+
+.quality-report .score-high {
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.quality-report .score-mid {
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.quality-report .score-low {
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.08);
+}
 
 /* 分类锁定 / AI 推荐 提示 */
 .cat-lock-tip, .cat-ai-tip {

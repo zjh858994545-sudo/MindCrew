@@ -7,9 +7,11 @@
 - [ ] Docker 中间件已启动：MySQL、Redis、MinIO、etcd、Milvus。
 - [ ] MySQL 已执行核心 SQL：
   - [ ] `sql/docmind-init.sql`
+  - [ ] `sql/kb-category-schema.sql`
   - [ ] `sql/rag-eval-schema.sql`
   - [ ] `sql/agent-trace-safety-schema.sql`
   - [ ] `sql/mcp-governance-schema.sql`
+  - [ ] `sql/rag-data-quality-metadata-schema.sql`
   - [ ] `sql/service-desk-loop-schema.sql`
 - [ ] 后端已启动，无数据库连接错误。
 - [ ] 前端已启动，能访问登录页和主页面。
@@ -18,6 +20,17 @@
 - [ ] 浏览器提前打开：服务台闭环、RAG 评测、Agent Trace、MCP 控制台。
 
 ## 演示步骤
+
+### 0. 知识库数据工程
+
+- [ ] 进入“知识库”页面。
+- [ ] 打开任意已就绪文档详情。
+- [ ] 展示 AI 摘要、标签、可回答问题。
+- [ ] 展示清洗质量报告：质量分、清洗前后字数、噪音行、重复行、最长切片。
+
+讲法：
+
+> 真实 RAG 项目的难点往往不是模型，而是数据质量。MindCrew 在入库阶段会留下清洗质量报告，并生成摘要、关键词和可回答问题，既提升召回，也方便排查。
 
 ### 1. 服务台业务入口
 
@@ -104,6 +117,7 @@ npm run build
 - [ ] 后端测试通过。
 - [ ] 前端构建通过。
 - [ ] 服务台页面可访问。
+- [ ] 知识库详情能看到可回答问题和清洗质量报告。
 - [ ] 生成草稿不会报错。
 - [ ] Trace ID 可跳转 Agent Trace。
 - [ ] 采纳后能同步 Golden Pair 或进入候选兜底状态。
